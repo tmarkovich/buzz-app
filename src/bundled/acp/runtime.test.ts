@@ -376,7 +376,7 @@ describe("AcpRuntime", () => {
       if (solo) {
         expect(text).toContain("<workspace-canvas>");
         expect(text).toContain("Use tokens.");
-      } else expect(text).not.toContain("workspace-canvas");
+      } else expect(text).not.toContain("Use tokens.");
     }
   });
 
