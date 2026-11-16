@@ -6,6 +6,7 @@ import type { BuzzClient, Memories } from "./client";
 import { nativeToolClient } from "../features/agents/tool-operation";
 import { prepareAttachment } from "../features/messages/prepare-attachment";
 import { imageType } from "../features/relay/attachment-limits";
+import { communityDestination } from "../features/communities/destination";
 import type { AgentHandle, AgentHandoff } from "../features/agents/service";
 import type {
   HostProcess,
@@ -17,6 +18,15 @@ type Spawn = (id: string, options?: HostProcessOptions) => Promise<HostProcess>;
 /** The largest file a tool reads: the community's upload limit. */
 export const READ_LIMIT = 50 * 1024 * 1024;
 const READ_TIMEOUT_MS = 60_000;
+
+/** The https origin of the community a `wss://` relay URL names. */
+function communityOrigin(relay: string) {
+  try {
+    return communityDestination(relay).url;
+  } catch {
+    return undefined;
+  }
+}
 
 export function appClient(
   agent: AgentHandle,
@@ -79,6 +89,7 @@ export function appClient(
           },
         }
       : {}),
+    community: communityOrigin(agent.relay),
     ...(agent.protection
       ? {
           protect: async (

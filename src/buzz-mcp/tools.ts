@@ -881,13 +881,20 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
         throw new Error(
           "message_url cannot be combined with channel or thread.",
         );
-      // Like a `buzz://` link, a shared https link reads from this relay.
+      // A shared https link reads from this relay only when it names this
+      // community; reading another's ids here would find nothing, or the
+      // wrong message.
+      const shared =
+        typeof args.message_url === "string"
+          ? parseCommunityShareLink(args.message_url)
+          : null;
+      if (shared && shared.origin !== client.community)
+        throw new Error(
+          "message_url is a link to another community; this agent reads only its own.",
+        );
       const link =
         typeof args.message_url === "string"
-          ? parseBuzzLink(
-              parseCommunityShareLink(args.message_url)?.link ??
-                args.message_url,
-            )
+          ? parseBuzzLink(shared?.link ?? args.message_url)
           : null;
       if (link?.format !== "legacy" || !link.messageId)
         throw new Error("message_url must be a Buzz message link.");

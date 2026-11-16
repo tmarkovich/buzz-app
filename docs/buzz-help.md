@@ -769,6 +769,9 @@ and are asked to sign in again in Buzz.
   in a browser, it offers to open Buzz, which shows the conversation in the
   community you have selected. In Buzz, a link to the current community opens
   like any Buzz link; a link to another community opens in the browser.
+  The web link needs a relay that serves its page; a self-hosted or older
+  relay without one answers it with an error. An agent's `read` tool reads a
+  web link only from its own community.
 - **Manage members** shows **General** access first in the member list. **Public**
   lets people in the community read and new people participate; **View only**
   lets them read; **Private** limits access to people added to the channel.

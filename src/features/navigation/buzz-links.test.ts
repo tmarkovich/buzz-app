@@ -552,6 +552,15 @@ it("reads only well-formed shared conversation links", () => {
     "not a url",
   ])
     expect(parseCommunityShareLink(href), href).toBeNull();
+  // Parameters a link picks up as it is shared, such as tracking, are ignored.
+  expect(
+    parseCommunityShareLink(
+      `https://community.example/channel/general/${id}?utm_source=mail&thread=${id}`,
+    ),
+  ).toEqual({
+    origin: "https://community.example",
+    link: `buzz://message?channel=general&id=${id}&thread=${id}`,
+  });
   expect(
     parseCommunityShareLink(`https://Other.Example:8443/channel/general/${id}`),
   ).toEqual({
