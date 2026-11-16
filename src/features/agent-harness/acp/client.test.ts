@@ -782,6 +782,38 @@ describe("a session without hooks", () => {
       expect(session.open).toBe(false);
     }
   });
+
+  it("tears down a session resumed under a closed id, though the harness cannot close it", async () => {
+    const harness = fakeHarness({
+      capabilities: { mcpCapabilities: { http: true }, loadSession: true },
+    });
+    const servers: HostMcpServer[] = [];
+    const acp = await start(harness, {
+      serve: async () => {
+        const server = await harness.serve();
+        servers.push(server);
+        return server;
+      },
+    });
+    const closed = (index: number) =>
+      Promise.race([
+        servers[index]?.closed.then(() => true),
+        flush().then(() => false),
+      ]);
+    const first = await acp.open({ cwd: "/work", systemPrompt: "", tools });
+    await acp.close(first);
+    expect(await closed(0)).toBe(true);
+    const resumed = await acp.open({
+      cwd: "/work",
+      systemPrompt: "",
+      tools,
+      resume: first.id,
+    });
+    await acp.close(resumed);
+    expect(await closed(1)).toBe(true);
+    expect(resumed.open).toBe(false);
+    expect(harness.sent("session/cancel")).toHaveLength(2);
+  });
 });
 
 describe("the shared server pool", () => {

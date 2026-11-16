@@ -68,8 +68,12 @@ type Pending = {
 export class AcpProcess {
   readonly exited: Promise<number | null>;
   private readonly sessions = new Map<string, AcpSession>();
-  /** Sessions whose close is in flight or failed, by id. */
-  private readonly closing = new Map<string, Promise<Error | undefined>>();
+  /** Sessions whose close is in flight or failed. Keyed by the session
+   * itself, so one resumed under the same id is torn down afresh. */
+  private readonly closing = new WeakMap<
+    AcpSession,
+    Promise<Error | undefined>
+  >();
   private readonly calls = new Map<number, Pending>();
   private requests = 0;
   private buffer = "";
@@ -427,13 +431,13 @@ export class AcpProcess {
    * rejects with it, as with a harness that cannot acknowledge one. Once the
    * harness has exited the session counts as closed. */
   async close(session: AcpSession, strict = false) {
-    let ending = this.closing.get(session.id);
+    let ending = this.closing.get(session);
     if (!ending) {
       if (!this.sessions.delete(session.id)) return;
       ending = this.end(session);
-      this.closing.set(session.id, ending);
+      this.closing.set(session, ending);
       const settled = (failure?: unknown) => {
-        if (!failure) this.closing.delete(session.id);
+        if (!failure) this.closing.delete(session);
       };
       void ending.then(settled, settled);
     }
