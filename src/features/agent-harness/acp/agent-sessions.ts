@@ -407,6 +407,8 @@ export class AgentSessions<S = unknown> {
   ): Promise<Settled> {
     // Once taken, this message's place in line, left as it is admitted.
     let place: ReturnType<typeof this.join> | undefined;
+    // The launch last read for an idle session, while it is still that one.
+    let read: { live: Live; systemPrompt: string } | undefined;
     try {
       for (;;) {
         if (current && !current()) return { ok: true, undelivered: true };
@@ -460,14 +462,34 @@ export class AgentSessions<S = unknown> {
           break;
         }
         // A harness that cannot take a new prompt in place needs a new session.
+        // The read holds this message's place, so Stop reaches it and what
+        // arrives meanwhile waits; admission is then checked again.
         if (!live.session.busy && !live.process.repromptable) {
-          const { systemPrompt } = await this.launchOf(live.claim);
-          if (this.live.get(key) !== live) continue;
-          if (systemPrompt !== live.systemPrompt) {
+          if (read?.live !== live) {
+            place ??= this.join(key);
+            const { stop } = place;
+            try {
+              read = {
+                live,
+                ...(await abortable(
+                  abortable(this.launchOf(live.claim), signal),
+                  stop,
+                )),
+              };
+            } catch (error) {
+              if (stop.aborted) return { ok: true, stopped: true };
+              if (signal?.aborted) return this.late;
+              throw error;
+            }
+            continue;
+          }
+          if (read.systemPrompt !== live.systemPrompt) {
             if (live.claim) this.forget(key, live.claim);
             this.drop(key, live);
             continue;
           }
+          if (place?.stop.aborted) return { ok: true, stopped: true };
+          if (signal?.aborted) return this.late;
         }
         return this.answer(
           key,

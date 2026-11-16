@@ -1493,6 +1493,57 @@ describe("a pinned session's queued default", () => {
     sessions.dispose();
   });
 
+  it("reaches a message whose idle session's launch is still being read", async () => {
+    const harness = fakeHarness({ configOptions: options() });
+    const { sessions, gate } = pinnedSessions(harness, { configOptions: true });
+    await sessions.deliver("chat", "a", 1, { build: build(1) });
+    const read = gate();
+    const b = sessions.deliver("chat", "b", 2, { build: build(2) });
+    await flush();
+    await sessions.interrupt("chat");
+    read();
+    await expect(b).resolves.toEqual({ ok: true, stopped: true });
+    expect(harness.turns).toHaveLength(1);
+    expect(await sessions.deliver("chat", "c", 3, { build: build(3) })).toEqual(
+      expect.objectContaining({ ok: true }),
+    );
+    expect(harness.turns.map((turn) => turn.text)).toEqual([
+      "through 1",
+      "through 3",
+    ]);
+    sessions.dispose();
+  });
+
+  it("opens new for a default turn behind an explicit one admitted during the read", async () => {
+    const harness = fakeHarness({ hold: true, configOptions: options() });
+    const { sessions, gate } = pinnedSessions(harness, { configOptions: true });
+    const a = sessions.deliver("chat", "a", 1, { build: build(1) });
+    await until(() => harness.turns.length === 1);
+    harness.turns[0]?.finish();
+    await a;
+    const read = gate();
+    const b = sessions.deliver("chat", "b", 2, {
+      model: "smart",
+      build: build(2),
+    });
+    const c = sessions.deliver("chat", "c", 3, { build: build(3) });
+    await flush();
+    read();
+    await until(() => harness.turns.length === 2);
+    harness.turns[1]?.finish();
+    await until(() => harness.turns.length === 3);
+    harness.turns[2]?.finish();
+    await Promise.all([b, c]);
+    expect(
+      harness.turns.map((turn) => `${turn.sessionId} ${turn.text}`),
+    ).toEqual([
+      "session-1 through 1",
+      "session-1 through 2",
+      expect.stringMatching(/^session-2 /),
+    ]);
+    sessions.dispose();
+  });
+
   it("is cleared by Stop while it waits", async () => {
     const harness = fakeHarness({ hold: true, configOptions: options() });
     const { sessions } = pinnedSessions(harness, { configOptions: true });
