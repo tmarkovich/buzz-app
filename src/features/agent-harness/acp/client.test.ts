@@ -1514,6 +1514,44 @@ describe("a pinned session's queued default", () => {
     sessions.dispose();
   });
 
+  it("reaches a message stopped after a read that changed its prompt, before admission", async () => {
+    const harness = fakeHarness({ configOptions: options() });
+    let prompt = "one";
+    let stopAfterRead: (() => void) | undefined;
+    const { sessions, gate } = pinnedSessions(harness, {
+      configOptions: true,
+      prompt: () => {
+        const stop = stopAfterRead;
+        // Stop lands after the read has fulfilled, before B resumes and is
+        // admitted: one tick sooner and the reservation's own race catches it.
+        if (stop)
+          void Promise.resolve()
+            .then(() => undefined)
+            .then(stop);
+        return prompt;
+      },
+    });
+    await sessions.deliver("chat", "a", 1, { build: build(1) });
+    const read = gate();
+    prompt = "two";
+    stopAfterRead = () => void sessions.interrupt("chat");
+    const b = sessions.deliver("chat", "b", 2, { build: build(2) });
+    read();
+    await expect(b).resolves.toEqual({ ok: true, stopped: true });
+    stopAfterRead = undefined;
+    // B never reached the harness, and no replacement opened for it.
+    expect(harness.turns).toHaveLength(1);
+    expect(harness.sent("session/new")).toHaveLength(1);
+    expect(await sessions.deliver("chat", "c", 3, { build: build(3) })).toEqual(
+      expect.objectContaining({ ok: true }),
+    );
+    expect(harness.turns.map((turn) => turn.text)).toEqual([
+      "one\n\nthrough 1",
+      "two\n\nthrough 3",
+    ]);
+    sessions.dispose();
+  });
+
   it("opens new for a default turn behind an explicit one admitted during the read", async () => {
     const harness = fakeHarness({ hold: true, configOptions: options() });
     const { sessions, gate } = pinnedSessions(harness, { configOptions: true });

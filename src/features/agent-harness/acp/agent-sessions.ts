@@ -413,6 +413,9 @@ export class AgentSessions<S = unknown> {
       for (;;) {
         if (current && !current()) return { ok: true, undelivered: true };
         if (this.disposed) return { ...this.stopped, undelivered: true };
+        // Cancelled during a read, whatever admission does next.
+        if (read && place?.stop.aborted) return { ok: true, stopped: true };
+        if (read && signal?.aborted) return this.late;
         if (!place && this.lines.has(key)) {
           place = this.join(key);
           const left = await this.wait(place.ahead, place.stop, signal);
@@ -488,8 +491,6 @@ export class AgentSessions<S = unknown> {
             this.drop(key, live);
             continue;
           }
-          if (place?.stop.aborted) return { ok: true, stopped: true };
-          if (signal?.aborted) return this.late;
         }
         return this.answer(
           key,
