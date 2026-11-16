@@ -47,7 +47,10 @@ import {
   editedTags,
   readableTags,
 } from "../features/agent-harness/turn-records";
-import { parseBuzzLink } from "../features/navigation/buzz-links";
+import {
+  parseBuzzLink,
+  parseCommunityShareLink,
+} from "../features/navigation/buzz-links";
 import { soloChannelMetadata } from "../features/relay/discovery";
 import { channelLabelTags } from "../features/relay/channel-labels";
 import { SOLO_LABEL, SOLO_NAMED_LABEL } from "../features/solo/labels";
@@ -270,7 +273,8 @@ export const TOOLS: readonly Tool[] = [
     thread: str,
     message_url: {
       type: "string",
-      description: "Buzz message link; replaces channel and thread.",
+      description:
+        "Buzz message link, buzz:// or https; replaces channel and thread.",
     },
     author: {
       type: "string",
@@ -877,9 +881,13 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
         throw new Error(
           "message_url cannot be combined with channel or thread.",
         );
+      // Like a `buzz://` link, a shared https link reads from this relay.
       const link =
         typeof args.message_url === "string"
-          ? parseBuzzLink(args.message_url)
+          ? parseBuzzLink(
+              parseCommunityShareLink(args.message_url)?.link ??
+                args.message_url,
+            )
           : null;
       if (link?.format !== "legacy" || !link.messageId)
         throw new Error("message_url must be a Buzz message link.");
