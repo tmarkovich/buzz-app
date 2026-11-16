@@ -1,4 +1,5 @@
 import { LIVE_CANVAS_BYTES } from "../features/channel-templates/model";
+import { communityDestination } from "../features/communities/destination";
 import {
   CANVAS_HISTORY_PAGE,
   CANVAS_MAX_EVENT_BYTES,
@@ -1051,6 +1052,16 @@ it("reads a shared https link only from the community it names", async () => {
     await expect(
       callTool(client, { channel: "chan", root }, "read", { message_url }),
     ).rejects.toThrow("another community");
+  // Both sides are normalized origins: case and a default port still match.
+  const normalized = {
+    ...client,
+    community: communityDestination("wss://Relay.Example:443/").url,
+  };
+  await expect(
+    callTool(normalized, { channel: "chan", root }, "read", {
+      message_url: `https://RELAY.example:443/channel/chan/${nested}`,
+    }),
+  ).resolves.toContain(nested);
   const unknown = { ...client, community: undefined };
   await expect(
     callTool(unknown, { channel: "chan", root }, "read", {
