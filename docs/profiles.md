@@ -71,6 +71,18 @@ success check and base Buzz's copy feedback. It remains self-declared: the row
 matches base Buzz without a verification claim or badge. Display/copy never
 performs DNS verification. Ordinary human profiles have no agent fields.
 
+## Archived keys
+
+When the community's archive snapshot lists the identity, the profile says
+"This key is archived in this community." When the relay's newest archive delta
+for the key names a replacement (see [agents.md](agents.md#relay-scoped-archive-display)),
+it says "This key was replaced by" with the new key's name as a link that opens
+its profile in the same slot; an owned agent's profile asks before it leaves
+unsaved edits. The notice is hidden while an agent's name is being edited. A key
+that is not archived shows nothing. Archival only hides a key from choosers;
+the replacement is a relay hint, not proof that the same person holds the new
+key.
+
 ## Boundaries
 
 - Shared message UI recognizes author-avatar and byline-name targets and

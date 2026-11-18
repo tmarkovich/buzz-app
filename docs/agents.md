@@ -1322,8 +1322,18 @@ As in base Buzz, mention autocomplete, the
 mention picker and member-add omit archived identities: fail-open while the
 snapshot is unknown, never hiding the viewer from themself, and never touching
 history or channel membership. `not-archived` means absent from the read snapshot, not online,
-owned, authorized or guaranteed current at a later write. Delta processing and
-packaged/live acceptance remain separate.
+owned, authorized or guaranteed current at a later write. Packaged/live
+acceptance remains separate.
+
+The profile notice is the one delta reader. Each profile opening rereads the
+13535 snapshot. While that snapshot lists the key, and no reread is in progress,
+`session.archives.replacement(pubkey)` makes one fresh background read of kinds
+8002/8003 from the same authority with `#p` = the key and limit 3. Only a
+well-formed archive delta names a replacement: kind 8002, one `-`, one `p` equal
+to the key, one `consent` with a NIP-IA path, and one `replaced-by` that is a
+different valid key. A newer 8003, a malformed newest delta, newest-second ties
+that disagree, or a full page of ties name none. A replacement counts only under
+the snapshot it was read with. It is presentation, never access or proof.
 
 `session.archives.request("archive" | "unarchive", pubkey)` sends exact 9035/9036
 requests (`["-"]`, one `p`, optional `auth`) through the session's signer and
