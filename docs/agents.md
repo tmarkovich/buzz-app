@@ -1326,10 +1326,11 @@ owned, authorized or guaranteed current at a later write. Packaged/live
 acceptance remains separate.
 
 The profile notice is the one delta reader. Each profile opening rereads the
-13535 snapshot, and so does selecting a retained profile tab again; a hidden tab
-reads nothing. After a dropped connection is established again, the store
-rereads a snapshot that a view subscribes to and that the drop left stale or
-failed. While
+13535 snapshot, and so does showing a retained profile tab again: selecting
+its tab, opening its collapsed dock, or closing the dock that covered it. A
+hidden tab reads nothing. After a dropped connection is established again,
+the store rereads a snapshot that a view subscribes to and that the drop left
+stale, failed or still retrying. While
 that snapshot lists the key, and no reread is in progress,
 `session.archives.replacement(pubkey)` makes one background read of kinds
 8002/8003 from the same authority with `#p` = the key and limit 3. Every
