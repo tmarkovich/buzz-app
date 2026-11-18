@@ -328,6 +328,13 @@ export function createIdentityArchives(
     // A read started before acceptance cannot confirm it; a failed re-read stays unknown.
     await pending;
     await refresh();
+    // A drop cancels that read and a reconnect restarts it; confirm from a
+    // read that finishes.
+    while (
+      !closed &&
+      (snapshot.status === "idle" || snapshot.status === "loading")
+    )
+      await (pending ?? refresh());
     if (closed) throw new Error("Archive request was interrupted");
     const expected = action === "archive" ? "archived" : "not-archived";
     if (state(target) !== expected)
