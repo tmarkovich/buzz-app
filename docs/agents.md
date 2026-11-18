@@ -1326,9 +1326,15 @@ owned, authorized or guaranteed current at a later write. Packaged/live
 acceptance remains separate.
 
 The profile notice is the one delta reader. Each profile opening rereads the
-13535 snapshot. While that snapshot lists the key, and no reread is in progress,
-`session.archives.replacement(pubkey)` makes one fresh background read of kinds
-8002/8003 from the same authority with `#p` = the key and limit 3. Only a
+13535 snapshot, and so does selecting a retained profile tab again; a hidden tab
+reads nothing. After a dropped connection is established again, the store
+rereads a snapshot that a view subscribes to and that the drop left stale or
+failed. While
+that snapshot lists the key, and no reread is in progress,
+`session.archives.replacement(pubkey)` makes one background read of kinds
+8002/8003 from the same authority with `#p` = the key and limit 3. Every
+caller under the same snapshot read shares that read; the next snapshot read
+asks again. Only a
 well-formed archive delta names a replacement: kind 8002, one `-`, one `p` equal
 to the key, one `consent` with a NIP-IA path, and one `replaced-by` that is a
 different valid key. A newer 8003, a malformed newest delta, newest-second ties
