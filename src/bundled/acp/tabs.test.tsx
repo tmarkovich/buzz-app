@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -538,6 +539,22 @@ describe("History focus", () => {
     await userEvent.keyboard("{Enter}");
     expect(actions()).toHaveLength(1);
     expect(actions()[0]).toHaveFocus();
+  });
+
+  it("never lets a cancelled read overwrite the next one", async () => {
+    let first!: (transcript: undefined) => void;
+    const transcript = vi
+      .fn<TabsRuntime["transcript"]>()
+      .mockImplementationOnce(() => new Promise((resolve) => (first = resolve)))
+      .mockImplementation(() => new Promise(() => {}));
+    history(transcript);
+    await userEvent.click(actions()[0] as HTMLElement);
+    await userEvent.click(back());
+    await userEvent.click(actions()[1] as HTMLElement);
+    first(undefined);
+    await act(async () => {});
+    expect(screen.getByRole("status")).toHaveTextContent("Reading…");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("opens the thread's transcript when it arrives from agent activity, then goes back", async () => {

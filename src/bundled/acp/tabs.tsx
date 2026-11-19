@@ -742,15 +742,18 @@ export function createTabs({
       setRead({ status: "loading" });
       runtime
         .transcript(agent.key, open, abort.signal)
-        .then((transcript) =>
-          setRead(
-            transcript
-              ? { status: "done", transcript }
-              : {
-                  status: "error",
-                  error: "This harness can't replay its transcripts.",
-                },
-          ),
+        .then(
+          (transcript) =>
+            // A read cancelled by the next one never overwrites it.
+            !abort.signal.aborted &&
+            setRead(
+              transcript
+                ? { status: "done", transcript }
+                : {
+                    status: "error",
+                    error: "This harness can't replay its transcripts.",
+                  },
+            ),
         )
         .catch(
           (reason) =>
