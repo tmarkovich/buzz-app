@@ -1671,13 +1671,13 @@ describe("AcpRuntime", () => {
     expect(workingUntil).toHaveBeenCalledTimes(3);
     open();
     // The two valid turns prompt in turn; the refused wake never does.
-    const turns = fake.harnesses[0]!.turns;
+    const turns = fake.harnesses[0]?.turns ?? [];
     await vi.waitFor(() => expect(turns).toHaveLength(1));
-    turns[0]!.finish();
+    turns[0]?.finish();
     await vi.waitFor(() => expect(turns).toHaveLength(2));
-    turns[1]!.finish();
+    turns[1]?.finish();
     expect(fake.harnesses[0]?.opened).toHaveLength(1);
-    expect(turns[1]!.sessionId).toBe(turns[0]!.sessionId);
+    expect(turns[1]?.sessionId).toBe(turns[0]?.sessionId);
     expect(fake.harnesses[0]?.turns.map((turn) => turn.text)).not.toContain(
       "wake",
     );
