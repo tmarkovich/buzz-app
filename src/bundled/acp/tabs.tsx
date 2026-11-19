@@ -3,12 +3,14 @@
 import {
   type FocusEvent,
   useEffect,
+  useId,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import type { Transcript } from "../../features/agents/activity-transcript";
 import { ActivityTranscript } from "../../features/agents/ActivityTranscript";
+import { AgentSaveButton } from "../../features/agents/AgentSaveButton";
 import { AgentInstructions } from "../../features/agents/AgentInstructions";
 import { useOpenTranscript } from "../../features/agents/OpenedConversation";
 import type {
@@ -341,6 +343,7 @@ export function createTabs({
   }
 
   function SettingsTab({ agent, save, settingsHost }: AgentViewProps<Config>) {
+    const form = useId();
     const saved = readConfig(agent.config);
     const [draft, setDraft] = useState(saved);
     const [rows, setRows] = useState(() => rowsOf(saved.env));
@@ -465,6 +468,7 @@ export function createTabs({
     };
     return (
       <form
+        id={form}
         className="grid gap-4"
         onSubmit={(event) => {
           event.preventDefault();
@@ -640,15 +644,6 @@ export function createTabs({
           ))}
         <div className="flex gap-2">
           <Button
-            type="submit"
-            variant="prominent"
-            loading={busy}
-            disabled={!changed || checking}
-            focusableWhenDisabled
-          >
-            Save
-          </Button>
-          <Button
             disabled={configChanged || current || problems(saved).length > 0}
             // Confirming disables it, and focus comes back here from the dialog.
             focusableWhenDisabled
@@ -692,6 +687,12 @@ export function createTabs({
             )}
           </Dialog>
         )}
+        <AgentSaveButton
+          form={form}
+          saving={busy}
+          disabled={!changed || checking}
+          dirty={changed}
+        />
       </form>
     );
   }

@@ -227,10 +227,8 @@ it("shows Check pending on Check, and its failure apart from readiness", async (
   await waitFor(() => expect(button).toBeEnabled());
   await userEvent.click(button);
   expect(button).toHaveAttribute("aria-busy", "true");
-  expect(screen.getByRole("button", { name: "Save" })).not.toHaveAttribute(
-    "aria-busy",
-    "true",
-  );
+  // Nothing is changed, so there is no Save to show busy.
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   finish("cursor-agent wasn't found");
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Check failed: cursor-agent wasn't found",
@@ -266,17 +264,16 @@ it.each([[["a\nb"]], [[""]]])(
   "won't silently rewrite stored args %j the box can't show",
   async (stored) => {
     const { saves } = mount(undefined, { ...start, args: stored });
-    const save = screen.getByRole("button", { name: "Save" });
     expect(screen.getByRole("alert")).toHaveTextContent("can't be empty");
-    expect(save).toHaveAttribute("aria-disabled", "true");
-    await userEvent.click(save);
+    // Unchanged, it offers no Save to rewrite them with.
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
     expect(saves).toHaveLength(0);
     const args = screen.getByRole("textbox", { name: "Arguments" });
     await userEvent.clear(args);
     await userEvent.type(args, "acp");
     await userEvent.tab();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    await userEvent.click(save);
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(saves).toHaveLength(1));
     expect(saves[0]).toMatchObject({ args: ["acp"] });
   },
@@ -322,13 +319,17 @@ it("won't save a new launch while Check runs, so its result stays current", asyn
     screen.getByRole("textbox", { name: "Arguments" }),
     "{End}\n--force",
   );
-  const save = screen.getByRole("button", { name: "Save" });
-  await userEvent.click(save);
-  fireEvent.submit(save.closest("form") as HTMLFormElement);
+  // Save waits out the Check, and so does a submit some other way.
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  fireEvent.submit(
+    screen
+      .getByRole("textbox", { name: "Arguments" })
+      .closest("form") as HTMLFormElement,
+  );
   expect(saves).toHaveLength(0);
   finish(READY);
   expect(await screen.findByRole("status")).toHaveTextContent(READY);
-  await userEvent.click(save);
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(saves).toHaveLength(1));
   expect(screen.queryByRole("status")).not.toBeInTheDocument();
 });
