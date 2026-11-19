@@ -60,6 +60,8 @@ import {
 } from "../claude-code/prompt";
 import { digest } from "../../features/agent-harness/acp/agent-sessions";
 import { standalonePrompt } from "../goose/runtime";
+import { readAuthorNames } from "../../features/agent-harness/author-names";
+import { ownerReads } from "../../features/agents/reads";
 import { offers } from "../../features/agent-harness/acp/options";
 import { unsupportedSynced } from "../../features/agents/agent-config";
 import {
@@ -73,7 +75,7 @@ import { preset } from "./presets";
 import { localOwed, localSessions } from "./sessions";
 import type { Conversation, SignIn } from "./tabs";
 
-const NAMES_TIMEOUT_MS = 2_000;
+const CONVERSATION_READ_TIMEOUT_MS = 4_000;
 const CHAT = [9, 40002];
 /** No extension picks a model: the launch's args or env do. */
 const HARNESS_CHOICE = Object.freeze({ provider: "", model: "" });
@@ -619,7 +621,7 @@ export class AcpRuntime {
               ? [{ ids: [...owed], "#h": [channelId], limit: owed.length }]
               : []),
           ],
-          { signal: AbortSignal.timeout(NAMES_TIMEOUT_MS * 2) },
+          { signal: AbortSignal.timeout(CONVERSATION_READ_TIMEOUT_MS) },
         );
         const seen = new Set<string>();
         earlier = events
@@ -656,22 +658,16 @@ export class AcpRuntime {
     const unseen = candidates.filter(
       (item) => owed.includes(item.id) || recent.has(item),
     );
-    const pubkeys = [
-      ...new Set([
-        event.pubkey,
-        ...unseen.map((item) => item.pubkey),
-        ...event.tags
-          .filter((tag) => tag[0] === "p")
-          .map((tag) => tag[1] ?? ""),
-      ]),
-    ].filter(Boolean);
-    if (session)
-      await Promise.race([
-        session.profiles.ensure(pubkeys, "foreground").catch(() => undefined),
-        new Promise((resolve) => setTimeout(resolve, NAMES_TIMEOUT_MS)),
-      ]);
-    const members = summary?.members ?? [];
-    const project = (await reading)?.section;
+    const reads = ownerReads(this.relay(self), pubkeyOf(self));
+    const signingAuthority = reads?.workflowAuthority();
+    const [names, project] = await Promise.all([
+      readAuthorNames(
+        reads,
+        [event, ...unseen.slice(-CONTEXT_LIMIT)],
+        signingAuthority,
+      ),
+      reading.then((read) => read?.section),
+    ]);
     return {
       key,
       event,
@@ -685,10 +681,8 @@ export class AcpRuntime {
       ...(thread ? { thread } : {}),
       context: unseen,
       total: earlier.length + 1,
-      name: (pubkey: string) =>
-        session?.names.resolve(pubkey, undefined, members) ??
-        session?.profiles.snapshot().get(pubkey)?.name ??
-        undefined,
+      names,
+      ...(signingAuthority ? { signingAuthority } : {}),
       ...(project ? { project } : {}),
     };
   }

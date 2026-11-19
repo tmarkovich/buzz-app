@@ -531,6 +531,57 @@ describe("AcpRuntime", () => {
     expect(fake.harnesses.flatMap((h) => h.sent("session/prompt"))).toEqual([]);
   });
 
+  it("names each message's author in the prompt", async () => {
+    const config = await confirmed();
+    const { fake, deliver, sync, session } = setup();
+    (session.profiles as { snapshot: () => Map<string, unknown> }).snapshot =
+      () =>
+        new Map([[alice, { name: "Alice Liddell", nameIsFallback: false }]]);
+    sync(config);
+    await deliver(message("1", "@Opal hello"), config).run;
+    await vi.waitFor(() => expect(fake.harnesses[0]?.turns).toHaveLength(1));
+    expect(fake.harnesses[0]?.turns[0]?.text).toContain("Alice Liddell");
+    fake.harnesses[0]?.turns[0]?.finish();
+  });
+
+  it("names the person a workflow's message is from, not the signing authority", async () => {
+    const config = await confirmed();
+    const { fake, deliver, sync, session } = setup(
+      {},
+      {
+        read: async () => [
+          {
+            ...message("1", "Deploy finished", "workflow-authority"),
+            tags: [
+              ["h", channel],
+              ["actor", alice],
+            ],
+          },
+        ],
+      },
+    );
+    (session.profiles as { snapshot: () => Map<string, unknown> }).snapshot =
+      () =>
+        new Map([[alice, { name: "Alice Liddell", nameIsFallback: false }]]);
+    sync(config);
+    await deliver(
+      {
+        ...message("2", "@Opal what happened?"),
+        tags: [
+          ["h", channel],
+          ["p", self],
+          ["e", "1".repeat(64), "", "reply"],
+        ],
+      },
+      config,
+    ).run;
+    await vi.waitFor(() => expect(fake.harnesses[0]?.turns).toHaveLength(1));
+    const text = fake.harnesses[0]?.turns[0]?.text ?? "";
+    expect(text).toContain("Deploy finished");
+    expect(text.match(/Alice Liddell/g)).toHaveLength(2);
+    fake.harnesses[0]?.turns[0]?.finish();
+  });
+
   it("ignores a mention from someone other than the owner", async () => {
     const config = await confirmed();
     const { fake, deliver, sync } = setup();
