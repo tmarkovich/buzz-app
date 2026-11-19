@@ -1911,6 +1911,26 @@ describe("AcpRuntime", () => {
     expect(runtime.signIn(self)).toBeUndefined();
   });
 
+  it("sets the sign-in state when a standalone turn's session needs a login", async () => {
+    const config = await confirmed();
+    const { runtime, sync } = setup({
+      authMethods: [{ id: "login", name: "Log in" }],
+      errors: { "session/new": { code: -32000, message: "Sign in first" } },
+    });
+    sync(config);
+    const done = await runtime.runOnce({
+      delivery: {
+        agent: { key: self, pubkey: self, name: "Opal", owner: alice },
+        config,
+      } as unknown as Delivery,
+      key: "timer",
+      signal: new AbortController().signal,
+      prompt: async () => "wake",
+    });
+    expect(done).toMatchObject({ ok: false });
+    expect(runtime.signIn(self)).toEqual({ methods: [{ name: "Log in" }] });
+  });
+
   it("adds the preset's sign-in hint only when the first turn needs a login", async () => {
     for (const code of [-32000, -32603]) {
       const config = await confirmed();

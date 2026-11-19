@@ -738,9 +738,16 @@ export class AgentSessions<S = unknown> {
         `${this.options.label} could not start a one-off session`,
         error,
       );
+      // A pinned session's caller sets its sign-in state from these; an
+      // unpinned (goose) one's result stays as on main.
+      const code = this.options.pin ? codeOf(error) : undefined;
       return {
         ok: false,
         error: `${this.options.label} could not start: ${message(error)}`,
+        ...(code === undefined ? {} : { code }),
+        ...(code === AUTH_REQUIRED
+          ? { authMethods: authMethodsOf(error) }
+          : {}),
       };
     } finally {
       this.once.delete(key);
