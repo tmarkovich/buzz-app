@@ -444,6 +444,62 @@ describe("AcpRuntime", () => {
     }
   });
 
+  it("runs an addressed wake in its thread, with its own prompt", async () => {
+    const config = await confirmed();
+    const { fake, runtime, sync, workingUntil } = setup();
+    sync(config);
+    const ignored = vi.fn();
+    const root = "d".repeat(64);
+    await runtime.run({
+      trigger: {
+        type: "attention",
+        id: "e".repeat(64),
+        channel,
+        root,
+        text: "The watched PR merged.",
+        at: 200_000,
+      },
+      channelId: channel,
+      agent: { key: self, pubkey: self, name: "Opal", owner: alice },
+      config,
+      signal: new AbortController().signal,
+      workingUntil,
+      ignored,
+    } as unknown as Delivery);
+    await vi.waitFor(() => expect(fake.harnesses[0]?.turns).toHaveLength(1));
+    expect(ignored).not.toHaveBeenCalled();
+    const text = fake.harnesses[0]?.turns[0]?.text ?? "";
+    expect(text).toContain("The watched PR merged.");
+    expect(runtime.sessions(self).map((view) => view.key)).toEqual([
+      `${channel}/${root}`,
+    ]);
+    fake.harnesses[0]?.turns[0]?.finish();
+  });
+
+  it("drops an addressed wake with no conversation to go to", async () => {
+    const config = await confirmed();
+    const { fake, runtime, sync, workingUntil } = setup();
+    sync(config);
+    const ignored = vi.fn();
+    await runtime.run({
+      trigger: {
+        type: "attention",
+        id: "e".repeat(64),
+        channel,
+        text: "x",
+        at: 1,
+      },
+      channelId: channel,
+      agent: { key: self, pubkey: self, name: "Opal", owner: alice },
+      config,
+      signal: new AbortController().signal,
+      workingUntil,
+      ignored,
+    } as unknown as Delivery);
+    expect(ignored).toHaveBeenCalled();
+    expect(fake.harnesses.flatMap((h) => h.turns)).toEqual([]);
+  });
+
   it("ignores a mention from someone other than the owner", async () => {
     const config = await confirmed();
     const { fake, deliver, sync } = setup();

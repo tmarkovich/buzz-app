@@ -60,6 +60,10 @@ import {
 } from "../claude-code/prompt";
 import { digest } from "../../features/agent-harness/acp/agent-sessions";
 import { standalonePrompt } from "../goose/runtime";
+import {
+  wakeAnchor,
+  wakeLands,
+} from "../../features/agent-harness/plugin-wake";
 import { type Config, config } from "./config";
 import { HarnessProcess, start } from "./harness";
 import { launchKey, type ModelCache } from "./models";
@@ -270,13 +274,23 @@ export class AcpRuntime {
     effort,
     named,
     synced,
+    wakeText,
   }: Delivery) {
     const settings = config(raw);
-    // Watches and timers come as standalone turns (`runOnce`).
-    if (trigger.type !== "mention") return ignored?.();
+    // Unaddressed watches and timers come as standalone turns (`runOnce`).
+    if (
+      trigger.type !== "mention" &&
+      trigger.type !== "attention" &&
+      trigger.type !== "plugin"
+    )
+      return ignored?.();
+    // A wake is not a message to check: a plugin's is the owner's installed
+    // code, and the agent's own handoff comes from a turn already acting
+    // for the owner.
+    const wake = trigger.type !== "mention" ? trigger : undefined;
     // The harness runs commands as you; mentions need owner or delegated
     // authority.
-    {
+    if (trigger.type === "mention") {
       const snapshot = this.relay(agent.key)?.snapshot();
       if (
         !(await fromOwner(trigger.event, agent.owner, {
@@ -299,17 +313,20 @@ export class AcpRuntime {
     const entry = this.entry(agent.key, settings);
     entry.handle = agent;
     entry.team = team ?? "";
-    const { event } = trigger;
+    const event =
+      trigger.type !== "mention" ? wakeAnchor(trigger) : trigger.event;
     const channel =
       channelId ?? event.tags.find((tag) => tag[0] === "h")?.[1] ?? undefined;
     if (!channel) return;
     // Frozen for the turn: its key, prompt, tools and posts all follow it.
-    const topLevel = await soloChat(
+    const solo = await soloChat(
       () => this.relay(agent.key),
       agent.owner,
       channel,
       signal,
     );
+    const topLevel = solo || wake?.topLevel === true;
+    if (wake && !wakeLands(wake, topLevel)) return ignored?.();
     const place = this.place(agent.key, event, channel, topLevel);
     // A live or opening session keeps the conversation it was opened for,
     // under its own pinned scope; only otherwise does today's scope decide.
@@ -326,7 +343,12 @@ export class AcpRuntime {
     // Owed from now until a committed prompt has carried it: a turn that
     // fails, is refused or is stopped leaves it for the next prompt.
     const owed = localOwed(this.storage, agent.key);
-    owed.set(key, [...owed.get(key).filter((id) => id !== event.id), event.id]);
+    // A wake is no message on the relay to read back.
+    if (!wake)
+      owed.set(key, [
+        ...owed.get(key).filter((id) => id !== event.id),
+        event.id,
+      ]);
     const done = entry.sessions.deliver(key, "", event.created_at, {
       // Built when it is sent, from what the session has definitely seen.
       build: async (from, pinned) => {
@@ -345,11 +367,22 @@ export class AcpRuntime {
           key,
           from,
           unpaid,
+          solo,
         );
+        const wakePrompt = wake
+          ? ((await wakeText?.()) ?? wake.text)
+          : undefined;
         return {
           text: this.review(
             entry,
-            turnPrompt({ ...turn, agent: agent.pubkey }),
+            turnPrompt({
+              ...turn,
+              agent: agent.pubkey,
+              channelLevel: topLevel && !solo,
+              ...(wake
+                ? { wake: { ...wake, text: wakePrompt ?? wake.text } }
+                : {}),
+            }),
           ),
           // Only what the prompt shows counts as seen.
           through: cover(from, [...turn.context.slice(-CONTEXT_LIMIT), event]),
@@ -511,6 +544,7 @@ export class AcpRuntime {
     key: string,
     from: Mark,
     owed: readonly string[] = [],
+    solo = topLevel,
   ) {
     const snapshot = this.relay(self)?.snapshot();
     const session = snapshot?.status === "ready" ? snapshot.session : undefined;
@@ -525,7 +559,7 @@ export class AcpRuntime {
     const fresh = from.at === FRESH.at;
     // Read alongside the conversation: only a Solo chat's Canvas is handed over.
     const owner = this.agents.get(self)?.handle?.owner;
-    const reading = topLevel
+    const reading = solo
       ? readProject(
           session && owner
             ? () =>
