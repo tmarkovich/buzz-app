@@ -532,8 +532,10 @@ export class AcpSession {
             { ...(model ? { model } : {}), ...(effort ? { effort } : {}) },
             source,
           );
+          // Only its own request fails: queued ones still run.
           if (refused) {
-            this.lastFailure = { error: refused };
+            if (waiter) this.discard(waiter, refused);
+            else this.lastFailure = { error: refused };
             continue;
           }
           accepted?.();

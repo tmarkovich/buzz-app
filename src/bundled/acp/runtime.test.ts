@@ -1602,6 +1602,96 @@ describe("AcpRuntime", () => {
     expect(fake.harnesses.flatMap((h) => h.turns)).toHaveLength(1);
   });
 
+  it("fails only a refused wake in a queue, and reports it in its own thread", async () => {
+    const config = await confirmed({ model: "gone", scope: "channel" });
+    let open!: () => void;
+    const opening = new Promise<void>((resolve) => (open = resolve));
+    const { fake, runtime, deliver, sync, published, workingUntil } = setup({
+      hold: true,
+      opening,
+      configOptions: [
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "a",
+          options: [{ value: "a", name: "a" }],
+        },
+      ],
+    });
+    sync(config);
+    const inThread = (event: RelayEvent, root: string) => ({
+      ...event,
+      tags: [...event.tags, ["e", root, "", "reply"]],
+    });
+    const signal = new AbortController().signal;
+    await deliver(
+      inThread(message("1", "@Opal one"), "1".repeat(64)),
+      config,
+      signal,
+      {
+        model: "a",
+      },
+    ).run;
+    await vi.waitFor(() => expect(fake.harnesses[0]?.opened).toHaveLength(1));
+    const wakeRoot = "d".repeat(64);
+    const waking = runtime.run({
+      trigger: {
+        type: "attention",
+        id: "e".repeat(64),
+        channel,
+        root: wakeRoot,
+        text: "wake",
+        at: 200_000,
+      },
+      channelId: channel,
+      agent: {
+        key: self,
+        pubkey: self,
+        name: "Opal",
+        owner: alice,
+        publish: vi.fn(async (t: { content: string; tags: string[][] }) => {
+          published.push(t);
+          return t;
+        }),
+      },
+      config,
+      signal,
+      workingUntil,
+      synced: { model: "gone" },
+    } as unknown as Delivery);
+    const lateRoot = "3".repeat(64);
+    const later = deliver(
+      inThread(message("3", "@Opal three"), lateRoot),
+      config,
+      signal,
+      { model: "a", synced: { model: "gone" } },
+    ).run;
+    // All three wait in one session's queue.
+    await flush(20);
+    open();
+    await Promise.all([waking, later]);
+    // The two valid turns prompt; the refused wake never does.
+    await vi.waitFor(() => expect(fake.harnesses[0]?.turns).toHaveLength(2));
+    for (const turn of fake.harnesses[0]?.turns ?? []) turn.finish();
+    expect(fake.harnesses[0]?.turns.map((turn) => turn.text)).not.toContain(
+      "wake",
+    );
+    const [first, wake, late] = await Promise.all(
+      workingUntil.mock.calls.map(([done]) => done),
+    );
+    expect(first).toMatchObject({ ok: true });
+    expect(wake).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('synced model "gone"'),
+    });
+    expect(late).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(published).toHaveLength(1));
+    expect(published[0]?.tags).toContainEqual(["e", wakeRoot, "", "reply"]);
+    expect(JSON.stringify(published)).not.toContain(lateRoot);
+  });
+
   it("refuses a synced model the harness doesn't offer, unless the message picks one", async () => {
     const config = await confirmed({ model: "gone" });
     const { fake, runtime, deliver, sync, published, workingUntil } = setup({
