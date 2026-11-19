@@ -1036,6 +1036,24 @@ describe("AcpRuntime", () => {
         [channel, reply],
       ]);
     });
+    it("finds out again whether sessions replay after a launch change", async () => {
+      const { runtime, storage, sync } = setup({
+        capabilities: { mcpCapabilities: { http: true } },
+      });
+      const config = await confirmed();
+      sync(config);
+      localSessions(storage, self).set(channel, { at: 1, id: "old" });
+      const signal = new AbortController().signal;
+      await runtime.transcript(self, channel, signal);
+      expect(runtime.replays(self)).toBe(false);
+      sync(await confirmed({ args: ["acp", "--other"] }));
+      expect(runtime.replays(self)).toBeUndefined();
+      // A read begun on the old launch says nothing about the new one.
+      const late = runtime.transcript(self, channel, signal);
+      sync(config);
+      await late;
+      expect(runtime.replays(self)).toBeUndefined();
+    });
   });
 
   describe("coverage", () => {

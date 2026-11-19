@@ -223,8 +223,11 @@ export class AcpRuntime {
         JSON.stringify(entry.config) !== JSON.stringify(next) ||
         entry.name !== agent.name
       ) {
-        if (launchOf(entry.config) !== launchOf(next))
+        if (launchOf(entry.config) !== launchOf(next)) {
           entry.generation = { id: ++this.generations, launch: next };
+          // Another harness may replay sessions: the next read finds out.
+          delete entry.replays;
+        }
         entry.config = next;
         entry.name = agent.name;
         entry.sessions.reconfigure();
@@ -870,6 +873,7 @@ export class AcpRuntime {
     const sessionId = entry?.store.load(key)?.id;
     if (!entry || !sessionId) return undefined;
     const launch = entry.config;
+    const { generation } = entry;
     const cwd = await this.resolveDirectory(launch.workspace);
     const [channelId, root] = key.split("/");
     const transcript = await readTranscript({
@@ -879,8 +883,11 @@ export class AcpRuntime {
       signal,
       threadOf: (prefix) => root ?? threadIn(prefix),
     });
-    entry.replays = transcript !== undefined;
-    this.notify();
+    // A read for an older launch says nothing about the current one.
+    if (entry.generation === generation) {
+      entry.replays = transcript !== undefined;
+      this.notify();
+    }
     return (
       transcript && {
         turns: transcript.turns.map((turn) => ({
