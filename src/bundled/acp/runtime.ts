@@ -773,6 +773,9 @@ export class AcpRuntime {
             snapshot.team,
             snapshot.name,
             snapshot.added,
+            // A model turning synced is refused from then on, not only in
+            // sessions opened after.
+            snapshot.syncedModel ?? false,
           ]),
           generation: entry.generation,
         };

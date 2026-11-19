@@ -1574,6 +1574,34 @@ describe("AcpRuntime", () => {
     );
   });
 
+  it("refuses a model in an open session once only its setting turns synced", async () => {
+    const config = await confirmed({ model: "gone" });
+    const { fake, deliver, sync, workingUntil } = setup({
+      configOptions: [
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "a",
+          options: [{ value: "a", name: "a" }],
+        },
+      ],
+    });
+    sync(config);
+    await deliver(message("1", "@Opal hi"), config).run;
+    await vi.waitFor(() => expect(fake.harnesses[0]?.turns).toHaveLength(1));
+    fake.harnesses[0]?.turns[0]?.finish();
+    await workingUntil.mock.calls[0]?.[0];
+    await deliver(message("2", "@Opal again"), config, undefined, {
+      synced: { model: "gone" },
+    }).run;
+    await expect(workingUntil.mock.calls[1]?.[0]).resolves.toMatchObject({
+      error: expect.stringContaining('synced model "gone"'),
+    });
+    expect(fake.harnesses.flatMap((h) => h.turns)).toHaveLength(1);
+  });
+
   it("refuses a synced model the harness doesn't offer, unless the message picks one", async () => {
     const config = await confirmed({ model: "gone" });
     const { fake, runtime, deliver, sync, published, workingUntil } = setup({
