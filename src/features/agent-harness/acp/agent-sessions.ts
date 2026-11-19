@@ -425,15 +425,16 @@ export class AgentSessions<S = unknown> {
         // A message that arrives while its conversation's session opens uses it.
         const opening = this.opening.get(key);
         if (opening) {
-          // The session stays shared; only this message gives up on it.
-          try {
-            await abortable(
-              opening.catch(() => undefined),
-              signal,
-            );
-          } catch {
-            return this.late;
-          }
+          // The session stays shared; only this message gives up on it. A
+          // pinned session's message takes its place in line, so Stop reaches
+          // it meanwhile. An unpinned (goose) session's waits as on main.
+          if (this.options.pin) place ??= this.join(key);
+          const left = await this.wait(
+            opening.catch(() => undefined),
+            place?.stop,
+            signal,
+          );
+          if (left) return left;
           continue;
         }
         const live = this.live.get(key);
@@ -914,13 +915,13 @@ export class AgentSessions<S = unknown> {
   /** Waits in line for `work`: a result once Stop or `signal` ends it. */
   private async wait(
     work: Promise<unknown>,
-    stop: AbortSignal,
+    stop: AbortSignal | undefined,
     signal?: AbortSignal,
   ): Promise<Settled | undefined> {
     try {
       await abortable(abortable(work, signal), stop);
     } catch {
-      return stop.aborted ? { ok: true, stopped: true } : this.late;
+      return stop?.aborted ? { ok: true, stopped: true } : this.late;
     }
   }
 

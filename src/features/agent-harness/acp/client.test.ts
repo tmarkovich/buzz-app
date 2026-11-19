@@ -1302,6 +1302,27 @@ describe("Stop after a pinned session is retired", () => {
     await a;
     sessions.dispose();
   });
+
+  it("stops every message waiting on a session that is still opening", async () => {
+    const harness = fakeHarness({ cancels: true });
+    const { sessions, holds, gate } = pinnedSessions(harness);
+    const opened = gate();
+    const a = sessions.deliver("channel", "a", 1);
+    await until(() => holds.length === 1);
+    const b = sessions.deliver("channel", "b", 2);
+    const c = sessions.deliver("channel", "c", 3);
+    await flush();
+    const stop = sessions.interrupt("channel");
+    opened();
+    await stop;
+    expect(await b).toEqual({ ok: true, stopped: true });
+    expect(await c).toEqual({ ok: true, stopped: true });
+    // Only the opening's own message reached the session.
+    expect(harness.turns.map((turn) => turn.text)).toEqual(["a"]);
+    for (const turn of harness.turns) turn.finish();
+    await a;
+    sessions.dispose();
+  });
 });
 
 describe("routing a pinned message", () => {
