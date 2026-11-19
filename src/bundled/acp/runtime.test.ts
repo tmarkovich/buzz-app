@@ -1884,6 +1884,33 @@ describe("AcpRuntime", () => {
     },
   );
 
+  it("sets and clears the sign-in state from a standalone turn", async () => {
+    const config = await confirmed();
+    const harness: Parameters<typeof setup>[0] & {
+      promptError?: { code: number; message: string };
+    } = {
+      authMethods: [{ id: "login", name: "Log in" }],
+      promptError: { code: -32000, message: "Sign in first" },
+    };
+    const { runtime, sync } = setup(harness);
+    sync(config);
+    const once = (key: string) =>
+      runtime.runOnce({
+        delivery: {
+          agent: { key: self, pubkey: self, name: "Opal", owner: alice },
+          config,
+        } as unknown as Delivery,
+        key,
+        signal: new AbortController().signal,
+        prompt: async () => "wake",
+      });
+    expect(await once("timer")).toMatchObject({ ok: false });
+    expect(runtime.signIn(self)).toEqual({ methods: [{ name: "Log in" }] });
+    delete harness.promptError;
+    expect(await once("timer 2")).toMatchObject({ ok: true });
+    expect(runtime.signIn(self)).toBeUndefined();
+  });
+
   it("adds the preset's sign-in hint only when the first turn needs a login", async () => {
     for (const code of [-32000, -32603]) {
       const config = await confirmed();

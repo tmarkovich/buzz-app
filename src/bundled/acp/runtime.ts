@@ -33,6 +33,7 @@ import {
   type Pinned,
   type RouteMatch,
   type ServeMcp,
+  type Settled,
   type Source,
   type Spawn,
   type ToolServer,
@@ -89,6 +90,18 @@ const FAILED = "⚠️ I couldn't finish that. Details are in my activity.";
  * launch generation. */
 const launchOf = ({ command, args, env, workspace, approval }: Config) =>
   JSON.stringify([command, args, env, workspace, approval]);
+
+/** Sets or clears `entry`'s sign-in state from a turn's `result`. */
+function signedIn(entry: Entry, result: Settled) {
+  if (result.ok) entry.signIn = undefined;
+  else if (result.code === AUTH_REQUIRED)
+    entry.signIn = {
+      methods: (result.authMethods ?? []).map(({ name, description }) => ({
+        name,
+        ...(description ? { description } : {}),
+      })),
+    };
+}
 
 /** What a live session pins when it opens, and runs on until it closes. */
 type Snap = Readonly<{
@@ -421,16 +434,7 @@ export class AcpRuntime {
     this.notify();
     void done
       .then((result) => {
-        if (result.ok) entry.signIn = undefined;
-        else if (result.code === AUTH_REQUIRED)
-          entry.signIn = {
-            methods: (result.authMethods ?? []).map(
-              ({ name, description }) => ({
-                name,
-                ...(description ? { description } : {}),
-              }),
-            ),
-          };
+        signedIn(entry, result);
         // Of the messages one turn answered, only one has its error. A
         // delivery cancelled by its own signal says nothing; it stays owed.
         if (result.error !== undefined && !signal.aborted)
@@ -478,7 +482,12 @@ export class AcpRuntime {
       },
     );
     this.notify();
-    return done.finally(() => this.notify());
+    return done
+      .then((result) => {
+        signedIn(entry, result);
+        return result;
+      })
+      .finally(() => this.notify());
   }
 
   /** `text` with the Buzz tools' end-of-turn note, when they have one. */
