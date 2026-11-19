@@ -1496,6 +1496,37 @@ describe("AcpRuntime", () => {
     expect(two.publish).not.toHaveBeenCalled();
   });
 
+  it("acts with a standalone turn's own handle after a mention arrives", async () => {
+    const config = await confirmed();
+    const { fake, deliver, sync, runtime, agent } = setup({ hold: true });
+    sync(config);
+    const handle = () => ({
+      ...agent,
+      publish: vi.fn((...args: Parameters<typeof agent.publish>) =>
+        agent.publish(...args),
+      ),
+    });
+    const [wake, mention] = [handle(), handle()];
+    void runtime.runOnce({
+      delivery: { agent: wake, config } as unknown as Delivery,
+      key: "timer",
+      signal: new AbortController().signal,
+      prompt: async () => "wake",
+    });
+    await vi.waitFor(() => expect(fake.harnesses[0]?.turns).toHaveLength(1));
+    await deliver(message("2", "@Opal two"), config, undefined, {
+      agent: mention,
+    } as unknown as Partial<Delivery>).run;
+    await vi.waitFor(() => expect(fake.harnesses[0]?.turns).toHaveLength(2));
+    const [a] = fake.harnesses[0]?.turns ?? [];
+    await fake.harnesses[0]?.mcp(a?.sessionId ?? "", "tools/call", {
+      name: "send",
+      arguments: { text: "from the wake", audience: "everyone", channel },
+    });
+    expect(wake.publish).toHaveBeenCalledTimes(1);
+    expect(mention.publish).not.toHaveBeenCalled();
+  });
+
   it("re-initializes the harness on Recheck", async () => {
     const config = await confirmed();
     const { fake, deliver, sync, runtime } = setup();

@@ -469,7 +469,9 @@ export class AcpRuntime {
     entry.syncedModel = !!delivery.synced?.model;
     const done = entry.sessions.runOnce(
       key,
-      async () => {
+      async (pinned) => {
+        // Its tools act with its own handle, and default to no place.
+        if (pinned) entry.places.set(pinned, { context: {}, handle: agent });
         const text = await prompt();
         return text === undefined
           ? undefined
@@ -726,7 +728,7 @@ export class AcpRuntime {
       pinned,
     ) => {
       const place = pinned ? entry.places.get(pinned as Snap) : undefined;
-      // The serving turn's handle; a standalone turn's is the latest.
+      // The serving turn's handle.
       const handle = place?.handle ?? entry.handle;
       const workspace =
         (pinned as Snap | undefined)?.config.workspace ??

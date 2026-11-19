@@ -682,7 +682,8 @@ export class AgentSessions<S = unknown> {
    * that should no longer run by then returns undefined and sends nothing. */
   async runOnce(
     label: string,
-    prompt: () => string | undefined | Promise<string | undefined>,
+    /** Given the session's pinned snapshot, when it has one. */
+    prompt: (pinned?: S) => string | undefined | Promise<string | undefined>,
     {
       signal,
       title,
@@ -719,7 +720,10 @@ export class AgentSessions<S = unknown> {
     try {
       live = await abortable(opening, signal);
       if (this.disposed) return this.stopped;
-      const text = await abortable(Promise.resolve(prompt()), signal);
+      const text = await abortable(
+        Promise.resolve(prompt(pinned?.snapshot)),
+        signal,
+      );
       if (text === undefined || this.disposed) return { ok: true };
       return await abortable(
         live.session.send(
