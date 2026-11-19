@@ -1,9 +1,10 @@
-//! Environment variables a local agent starts with, saved for each agent.
-//! Native code owns them: each agent's list is kept in the OS credential store
-//! under Buzz's own item for that agent's pubkey, never synced, and no command
-//! returns a value. It is added to the processes of Buzz's harnesses that ask
-//! for it, name the agent and run a local, unprotected agent (`may_have`),
-//! after the login shell's and before the harness's own, so a harness's
+//! Environment variables local agents start with: one list for every agent on
+//! this device, and one for each agent. Native code owns them: each list is
+//! kept in the OS credential store under Buzz's own item, never synced, and no
+//! command returns a value. They are added to the processes of Buzz's
+//! harnesses that ask for them and run a local, unprotected agent
+//! (`may_have`): the device list, then the named agent's own, so its variable
+//! wins, after the login shell's and before the harness's own, so a harness's
 //! variable wins. A saved list reaches processes started after the save;
 //! running ones keep the list they started with until Buzz restarts.
 //!
@@ -18,6 +19,15 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use zeroize::Zeroizing;
 
+/// The device list's item.
+#[cfg_attr(test, allow(dead_code))]
+const DEVICE_SERVICE: &str = if cfg!(debug_assertions) {
+    "xyz.block.buzz.desktop.agent-env.debug"
+} else {
+    "xyz.block.buzz.desktop.agent-env"
+};
+/// The device list's key among the lists; never an agent's pubkey.
+const DEVICE: &str = "default";
 /// Each agent's list, under its pubkey as the account.
 #[cfg_attr(test, allow(dead_code))]
 const AGENT_SERVICE: &str = if cfg!(debug_assertions) {
@@ -421,24 +431,42 @@ impl AgentEnvs {
             .or_insert_with(|| Arc::new(AgentEnv::with((self.open)(pubkey))))
             .clone()
     }
-    /// The agent's variables for a process, as `AgentEnv::for_process`.
+    /// The device's variables for a process, then `agent`'s, as
+    /// `AgentEnv::for_process`.
     pub(crate) async fn for_process(
         &self,
-        pubkey: &str,
+        agent: Option<&str>,
         plugin: &str,
         process_id: &str,
         protected: bool,
     ) -> Vec<(OsString, OsString)> {
-        if agent_key(pubkey).is_err() {
-            return Vec::new();
-        }
-        self.list(pubkey)
+        let mut vars = self
+            .list(DEVICE)
             .for_process(plugin, process_id, protected)
-            .await
+            .await;
+        if let Some(pubkey) = agent.filter(|pubkey| agent_key(pubkey).is_ok()) {
+            vars.extend(
+                self.list(pubkey)
+                    .for_process(plugin, process_id, protected)
+                    .await,
+            );
+        }
+        vars
     }
-    pub(crate) async fn status(&self, pubkey: &str) -> Result<Status, String> {
-        agent_key(pubkey)?;
-        self.list(pubkey).status().await
+    /// `agent`'s list, or without one the device's.
+    pub(crate) async fn status(&self, agent: Option<&str>) -> Result<Status, String> {
+        match agent {
+            Some(pubkey) => {
+                agent_key(pubkey)?;
+                self.list(pubkey).status().await
+            }
+            None => self.list(DEVICE).status().await,
+        }
+    }
+    /// Saves the device list.
+    pub(crate) async fn set_device(&self, rows: Vec<Row>) -> Result<(), String> {
+        let _turn = self.turn.lock().await;
+        self.list(DEVICE).set(rows).await
     }
     /// Saves the agent's list if `eligible` still holds once it is this
     /// save's turn.
@@ -490,7 +518,11 @@ pub(crate) fn forget_registry(
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn os_store(pubkey: &str) -> Box<dyn KeyStore> {
     Box::new(OsStore {
-        service: AGENT_SERVICE,
+        service: if pubkey == DEVICE {
+            DEVICE_SERVICE
+        } else {
+            AGENT_SERVICE
+        },
         account: pubkey.to_owned(),
     })
 }
@@ -530,34 +562,41 @@ pub(crate) async fn for_spawn(
     if protected || !may_have(plugin, process_id) {
         return Err("That secret is not available to this process".into());
     }
-    let Some(agent) = env_agent else {
-        return Ok(Vec::new());
-    };
-    if !eligible_here(agents, agent).await? {
-        return Err("That agent can't have environment variables of its own".into());
+    // No agent named: the device list alone.
+    if let Some(agent) = env_agent {
+        if !eligible_here(agents, agent).await? {
+            return Err("That agent can't have environment variables of its own".into());
+        }
     }
-    Ok(envs.for_process(agent, plugin, process_id, protected).await)
+    Ok(envs
+        .for_process(env_agent, plugin, process_id, protected)
+        .await)
 }
 
 #[tauri::command]
 pub(crate) async fn agent_env_status(
     envs: tauri::State<'_, AgentEnvs>,
     agents: tauri::State<'_, crate::app_agents::AppAgentHost>,
-    agent: String,
+    agent: Option<String>,
 ) -> Result<Status, String> {
-    if !eligible_here(&agents, &agent).await? {
-        return Err("This agent can't have environment variables of its own".into());
+    if let Some(agent) = &agent {
+        if !eligible_here(&agents, agent).await? {
+            return Err("This agent can't have environment variables of its own".into());
+        }
     }
-    envs.status(&agent).await
+    envs.status(agent.as_deref()).await
 }
 
 #[tauri::command]
 pub(crate) async fn agent_env_set(
     envs: tauri::State<'_, AgentEnvs>,
     agents: tauri::State<'_, crate::app_agents::AppAgentHost>,
-    agent: String,
+    agent: Option<String>,
     rows: Vec<Row>,
 ) -> Result<(), String> {
+    let Some(agent) = agent else {
+        return envs.set_device(rows).await;
+    };
     let agents = agents.agents()?;
     let pubkey = agent.clone();
     envs.set(&agent, rows, move || {

@@ -16,9 +16,10 @@ import { useAgentSaveState } from "../../features/agents/AgentSaveButton";
 type Row = { key: number; name: string; value: string; saved: boolean };
 type Status = { names: string[]; saved: boolean };
 
-/** Variables one local agent starts with, held natively in the OS credential
- * store. Values are never read back. */
-export function AgentEnvironment({ agent }: { agent: string }) {
+/** Variables one local agent starts with, or without `agent` every local
+ * agent on this device, held natively in the OS credential store. Values are
+ * never read back. */
+export function AgentEnvironment({ agent }: { agent?: string }) {
   const [rows, setRows] = useState<Row[] | undefined>();
   const [saved, setSaved] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -91,8 +92,9 @@ export function AgentEnvironment({ agent }: { agent: string }) {
     <div className="mt-section-gap">
       <InlineHeader title="Environment variables" />
       <p className="m-0 mb-2 text-body-sm text-subtle">
-        This agent starts with these. A harness’s own settings win. Models,
-        providers and endpoints are set in its harness settings, not here.
+        {agent
+          ? "This agent starts with these, after the ones every local agent on this device gets, so its own win. A harness’s own settings win over both. Models, providers and endpoints are set in its harness settings, not here."
+          : "Every local agent on this device starts with these, and an agent’s own list wins over them. Protected and hosted agents don’t get them, and a harness’s own settings win. Models, providers and endpoints are set above, not here."}
       </p>
       {/* Nothing that changes the list works while a save runs, so no edit is
           lost when it finishes. */}

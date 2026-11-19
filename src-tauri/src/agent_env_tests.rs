@@ -243,7 +243,7 @@ pub(crate) fn envs() -> (AgentEnvs, Stores) {
     (envs, stores)
 }
 async fn agent_given(envs: &AgentEnvs, pubkey: &str) -> Vec<(String, String)> {
-    envs.for_process(pubkey, "buzz.goose", "goose", false)
+    envs.for_process(Some(pubkey), "buzz.goose", "goose", false)
         .await
         .into_iter()
         .map(|(n, v)| (n.into_string().unwrap(), v.into_string().unwrap()))
@@ -262,10 +262,13 @@ async fn each_agent_gets_only_its_own_list() {
     );
     assert!(agent_given(&envs, BO).await.is_empty());
     assert!(envs
-        .for_process(ADA, "buzz.goose", "goose", true)
+        .for_process(Some(ADA), "buzz.goose", "goose", true)
         .await
         .is_empty());
-    assert_eq!(envs.status(BO).await.unwrap().names, Vec::<String>::new());
+    assert_eq!(
+        envs.status(Some(BO)).await.unwrap().names,
+        Vec::<String>::new()
+    );
 }
 
 #[tokio::test]
@@ -280,7 +283,7 @@ async fn an_agent_list_uses_the_same_rules() {
         .await
         .is_err());
     assert!(envs.set("ADA", vec![], || Ok(true)).await.is_err());
-    assert!(envs.status("../x").await.is_err());
+    assert!(envs.status(Some("../x")).await.is_err());
 }
 
 #[tokio::test]
@@ -398,8 +401,11 @@ async fn a_spawn_gets_only_an_eligible_named_agents_list() {
     let spawn =
         |agent, protected| for_spawn(&envs, &host, &asks, agent, "buzz.goose", "goose", protected);
     assert_eq!(spawn(Some(ADA), false).await.unwrap().len(), 1);
-    // No agent named: no list in this build.
+    // No agent named: the device list alone, empty here.
     assert!(spawn(None, false).await.unwrap().is_empty());
+    envs.set_device(vec![set("BAR", "device")]).await.unwrap();
+    assert_eq!(spawn(None, false).await.unwrap().len(), 1);
+    assert_eq!(spawn(Some(ADA), false).await.unwrap().len(), 2);
     // An agent being removed, or not here, is refused.
     assert!(spawn(Some(BO), false).await.is_err());
     let absent = "c".repeat(64);
@@ -457,4 +463,43 @@ fn sign_out_deletes_every_registered_agents_list_and_can_retry() {
     *stores.lock().unwrap()[BO].unwritable.lock().unwrap() = false;
     forget_registry(&agents, &open).unwrap();
     assert!(!saved(ADA) && !saved(BO));
+}
+
+#[tokio::test]
+async fn every_agent_gets_the_device_list_and_its_own_wins() {
+    let (envs, stores) = envs();
+    envs.set_device(vec![set("FOO", "device"), set("BAR", "device")])
+        .await
+        .unwrap();
+    envs.set(ADA, vec![set("FOO", "ada")], || Ok(true))
+        .await
+        .unwrap();
+    // The process takes the last of a repeated name, so Ada's comes after.
+    assert_eq!(
+        agent_given(&envs, ADA).await,
+        vec![
+            ("BAR".to_string(), "device".to_string()),
+            ("FOO".to_string(), "device".to_string()),
+            ("FOO".to_string(), "ada".to_string()),
+        ]
+    );
+    assert_eq!(agent_given(&envs, BO).await.len(), 2);
+    assert_eq!(
+        envs.for_process(None, "buzz.goose", "goose", false)
+            .await
+            .len(),
+        2
+    );
+    assert!(envs
+        .for_process(None, "buzz.goose", "goose", true)
+        .await
+        .is_empty());
+    assert_eq!(
+        envs.status(None).await.unwrap().names,
+        vec!["BAR".to_string(), "FOO".to_string()]
+    );
+    // An agent's cleanup leaves the device list.
+    envs.forget(ADA).await.unwrap();
+    assert_eq!(agent_given(&envs, ADA).await.len(), 2);
+    assert!(stores.lock().unwrap().contains_key("default"));
 }

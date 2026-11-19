@@ -255,3 +255,18 @@ it("blocks leaving Settings while the environment variables have unsaved edits",
     expect.anything(),
   );
 });
+
+it("edits the device list when no agent is named", async () => {
+  const user = userEvent.setup();
+  render(<AgentEnvironment />);
+  await user.type(await screen.findByLabelText("Value of SAVED_KEY"), "new");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(calls("agent_env_status")[0]?.[1]).toEqual({ agent: undefined });
+  expect(calls("agent_env_set")[0]?.[1]).toEqual({
+    agent: undefined,
+    rows: [{ name: "SAVED_KEY", value: "new" }],
+  });
+  expect(
+    screen.getByText(/Every local agent on this device/),
+  ).toBeInTheDocument();
+});
