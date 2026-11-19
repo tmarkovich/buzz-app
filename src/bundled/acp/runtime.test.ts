@@ -211,6 +211,7 @@ function setup(
     workingUntil,
     cache,
     storage,
+    agent,
   };
 }
 
@@ -1445,6 +1446,36 @@ describe("AcpRuntime", () => {
     // A plain send answers in A's thread, not B's.
     expect(sent?.tags).toContainEqual(["e", a.id, "", "reply"]);
     expect(JSON.stringify(sent?.tags)).not.toContain(b.id);
+  });
+
+  it("acts with each conversation's own delivery handle", async () => {
+    const config = await confirmed();
+    const { fake, deliver, sync, agent } = setup({ hold: true });
+    sync(config);
+    const handle = () => ({
+      ...agent,
+      publish: vi.fn((...args: Parameters<typeof agent.publish>) =>
+        agent.publish(...args),
+      ),
+    });
+    const [one, two] = [handle(), handle()];
+    await deliver(message("1", "@Opal one"), config, undefined, {
+      agent: one,
+    } as unknown as Partial<Delivery>).run;
+    await vi.waitFor(() => expect(fake.harnesses[0]?.turns).toHaveLength(1));
+    await deliver(message("2", "@Opal two"), config, undefined, {
+      agent: two,
+    } as unknown as Partial<Delivery>).run;
+    await vi.waitFor(() => expect(fake.harnesses[0]?.turns).toHaveLength(2));
+    const [a, b] = fake.harnesses[0]?.turns ?? [];
+    expect(b?.sessionId).not.toBe(a?.sessionId);
+    await fake.harnesses[0]?.mcp(a?.sessionId ?? "", "tools/call", {
+      name: "send",
+      arguments: { text: "answer for one", audience: "everyone" },
+    });
+    // A's reply is A's delivery's, though B's arrived after it.
+    expect(one.publish).toHaveBeenCalledTimes(1);
+    expect(two.publish).not.toHaveBeenCalled();
   });
 
   it("re-initializes the harness on Recheck", async () => {

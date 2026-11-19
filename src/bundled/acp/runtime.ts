@@ -151,8 +151,9 @@ type Entry = {
   name?: string;
   /** The agent's handle from its latest delivery, for the tools to act with. */
   handle?: AgentHandle;
-  /** Where each session's tools default to: its current turn's thread. */
-  places: WeakMap<Snap, Context>;
+  /** Where each session's tools default to, and the handle they act with:
+   * its current turn's. */
+  places: WeakMap<Snap, { context: Context; handle: AgentHandle }>;
   /** Whether the latest delivery's model was synced. */
   syncedModel?: boolean;
 };
@@ -363,7 +364,7 @@ export class AcpRuntime {
       build: async (from, pinned) => {
         // The serving session's tools act here from now on; a replacement
         // session on the same key never moves them.
-        entry.places.set(pinned, context);
+        entry.places.set(pinned, { context, handle: agent });
         // Only a commit adds to `from`, so what it holds was delivered.
         const unpaid = owed.get(key).filter((id) => !from.ids.includes(id));
         owed.set(key, unpaid);
@@ -712,7 +713,9 @@ export class AcpRuntime {
       signal,
       pinned,
     ) => {
-      const handle = entry.handle;
+      const place = pinned ? entry.places.get(pinned as Snap) : undefined;
+      // The serving turn's handle; a standalone turn's is the latest.
+      const handle = place?.handle ?? entry.handle;
       const workspace =
         (pinned as Snap | undefined)?.config.workspace ??
         entry.config.workspace;
@@ -728,7 +731,7 @@ export class AcpRuntime {
           remembered: () => this.forgetMemories(agent),
         }),
       };
-      const context = (pinned && entry.places.get(pinned as Snap)) || {};
+      const context = place?.context ?? {};
       return respond(client, context, message, this.added());
     };
     const snap = (): Snap => ({
