@@ -1630,9 +1630,7 @@ describe("AcpRuntime", () => {
       inThread(message("1", "@Opal one"), "1".repeat(64)),
       config,
       signal,
-      {
-        model: "a",
-      },
+      { model: "a", synced: { model: "gone" } },
     ).run;
     await vi.waitFor(() => expect(fake.harnesses[0]?.opened).toHaveLength(1));
     const wakeRoot = "d".repeat(64);
@@ -1668,13 +1666,18 @@ describe("AcpRuntime", () => {
       signal,
       { model: "a", synced: { model: "gone" } },
     ).run;
-    // All three wait in one session's queue.
-    await flush(20);
-    open();
+    // All three are admitted to one session's queue before it opens.
     await Promise.all([waking, later]);
-    // The two valid turns prompt; the refused wake never does.
-    await vi.waitFor(() => expect(fake.harnesses[0]?.turns).toHaveLength(2));
-    for (const turn of fake.harnesses[0]?.turns ?? []) turn.finish();
+    expect(workingUntil).toHaveBeenCalledTimes(3);
+    open();
+    // The two valid turns prompt in turn; the refused wake never does.
+    const turns = fake.harnesses[0]!.turns;
+    await vi.waitFor(() => expect(turns).toHaveLength(1));
+    turns[0]!.finish();
+    await vi.waitFor(() => expect(turns).toHaveLength(2));
+    turns[1]!.finish();
+    expect(fake.harnesses[0]?.opened).toHaveLength(1);
+    expect(turns[1]!.sessionId).toBe(turns[0]!.sessionId);
     expect(fake.harnesses[0]?.turns.map((turn) => turn.text)).not.toContain(
       "wake",
     );
