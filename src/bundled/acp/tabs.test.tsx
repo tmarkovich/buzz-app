@@ -155,6 +155,9 @@ it("shows an edit's problem on Save without waiting for the field to be left", a
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   fireEvent.submit(args.closest("form") as HTMLFormElement);
   expect(screen.getByRole("alert")).toHaveTextContent("can't be empty");
+  // On its own field, which it marks invalid and describes.
+  expect(args).toHaveAttribute("aria-invalid", "true");
+  expect(args).toHaveAccessibleDescription(/can't be empty/);
   expect(saves).toHaveLength(0);
 });
 

@@ -64,6 +64,11 @@ const rowLabel = ({ name }: Row, index: number) =>
   `variable ${index + 1}${name.trim() ? ` (${name.trim()})` : ""}`;
 /** The launch fields whose problems wait until the owner leaves them. */
 type Part = "command" | "args" | "env" | "workspace";
+/** A launch with nothing wrong, to check one field at a time against. */
+const SOUND = { command: "harness", args: [], env: {}, workspace: "/" };
+/** `value`'s problems in its `part` alone. */
+const problemsIn = (value: Config, part: Part) =>
+  problems({ ...value, ...SOUND, [part]: value[part] });
 const envOf = (rows: readonly Row[]) =>
   Object.fromEntries(
     rows.filter(({ name }) => name.trim()).map((r) => [r.name.trim(), r.value]),
@@ -388,13 +393,14 @@ export function createTabs({
     const found = problems(edited);
     // Until then the field counts as saved, so stored problems show at once.
     const counted = (part: Part) => submitted || left.has(part);
-    const shown = problems({
+    const shown = {
       ...edited,
       command: counted("command") ? edited.command : saved.command,
       args: counted("args") ? edited.args : saved.args,
       env: counted("env") ? edited.env : saved.env,
       workspace: counted("workspace") ? edited.workspace : saved.workspace,
-    });
+    };
+    const errorIn = (part: Part) => problemsIn(shown, part).join(" ");
     const launchChanged =
       JSON.stringify([
         edited.command,
@@ -514,6 +520,7 @@ export function createTabs({
         <Field
           label="Command"
           description="A program on your PATH or an absolute path. It runs without a shell."
+          error={errorIn("command")}
         >
           <Input
             value={draft.command}
@@ -523,7 +530,11 @@ export function createTabs({
             }
           />
         </Field>
-        <Field label="Arguments" description="One argument per line.">
+        <Field
+          label="Arguments"
+          description="One argument per line."
+          error={errorIn("args")}
+        >
           <Textarea
             value={args ?? saved.args.join("\n")}
             onBlur={leave("args")}
@@ -577,10 +588,16 @@ export function createTabs({
               Add variable
             </Button>
           </div>
+          {errorIn("env") && (
+            <p role="alert" className="buzz-field-error">
+              {errorIn("env")}
+            </p>
+          )}
         </fieldset>
         <Field
           label="Workspace"
           description="The folder the harness works in. Use ~/ for your home folder."
+          error={errorIn("workspace")}
         >
           <Input
             value={draft.workspace}
@@ -614,11 +631,6 @@ export function createTabs({
           description="Sent ahead of the first message of every session."
           onChange={(instructions) => setDraft({ ...draft, instructions })}
         />
-        {shown.map((problem) => (
-          <p key={problem} role="alert" className="buzz-field-error">
-            {problem}
-          </p>
-        ))}
         {error && (
           <p role="alert" className="buzz-field-error">
             {error}
