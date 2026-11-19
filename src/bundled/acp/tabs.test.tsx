@@ -507,16 +507,20 @@ describe("History focus", () => {
     return rows;
   }
   const actions = () => screen.getAllByRole("button", { name: "Transcript" });
-  const back = () => screen.getByRole("button", { name: "Back" });
+  const back = () => screen.getByRole("button", { name: "Back to profile" });
 
-  it("moves into Back while loading and returns to the opened row", async () => {
+  it("moves into Back while loading, keeping the list mounted, and goes back", async () => {
     history(() => new Promise(() => {}));
     actions()[1]?.focus();
     await userEvent.keyboard("{Enter}");
     expect(screen.getByRole("status")).toHaveTextContent("Reading…");
     expect(back()).toHaveFocus();
+    expect(actions()).toHaveLength(2);
     await userEvent.keyboard("{Enter}");
-    expect(actions()[1]).toHaveFocus();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Back to profile" }),
+    ).toBeNull();
   });
 
   it("moves into Back once loaded", async () => {
@@ -527,18 +531,14 @@ describe("History focus", () => {
     expect(back()).toHaveFocus();
   });
 
-  it("keeps focus on Back after a read failure, and falls back to a surviving row", async () => {
-    const rows = history(async () => {
+  it("keeps focus on Back after a read failure", async () => {
+    history(async () => {
       throw new Error("no replay");
     });
     actions()[1]?.focus();
     await userEvent.keyboard("{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent("no replay");
     expect(back()).toHaveFocus();
-    rows.pop();
-    await userEvent.keyboard("{Enter}");
-    expect(actions()).toHaveLength(1);
-    expect(actions()[0]).toHaveFocus();
   });
 
   it("never lets a cancelled read overwrite the next one", async () => {
@@ -572,7 +572,7 @@ describe("History focus", () => {
     expect(done).toHaveBeenCalled();
     expect(back()).toHaveFocus();
     await userEvent.keyboard("{Enter}");
-    expect(actions()[1]).toHaveFocus();
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("falls back to the channel's transcript when the thread has none", () => {
@@ -612,35 +612,5 @@ describe("History focus", () => {
       await screen.findByRole("button", { name: "Thread rrrrrrrr" }),
     );
     expect(openConversation).toHaveBeenCalledWith("c1", "r".repeat(64));
-  });
-
-  it("returns focus to the list when no Transcript action is left", async () => {
-    let replays: boolean | undefined;
-    history(
-      async () => {
-        replays = false;
-        return undefined;
-      },
-      undefined,
-      {},
-      () => replays,
-    );
-    actions()[0]?.focus();
-    await userEvent.keyboard("{Enter}");
-    await screen.findByRole("alert");
-    await userEvent.keyboard("{Enter}");
-    expect(screen.queryByRole("button", { name: "Transcript" })).toBeNull();
-    expect(screen.getByRole("group", { name: "Conversations" })).toHaveFocus();
-  });
-
-  it("returns focus to the empty state when every row is gone", async () => {
-    const rows = history(() => new Promise(() => {}));
-    actions()[0]?.focus();
-    await userEvent.keyboard("{Enter}");
-    rows.length = 0;
-    await userEvent.keyboard("{Enter}");
-    expect(
-      screen.getByText("No conversations on this device yet."),
-    ).toHaveFocus();
   });
 });

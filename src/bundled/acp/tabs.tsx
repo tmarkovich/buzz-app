@@ -17,6 +17,7 @@ import type {
   AgentCreateProps,
   AgentViewProps,
 } from "../../features/agents/service";
+import { PanelSubview } from "../../features/panels/PanelSubview";
 import { Button } from "../../shared/design-system/ui/Button";
 import { Dialog } from "../../shared/design-system/ui/Dialog";
 import { Field } from "../../shared/design-system/ui/Field";
@@ -730,7 +731,8 @@ export function createTabs({
       initialTranscript && { initial: from, ...initialTranscript },
       close,
     );
-    const open = transcript.open?.key;
+    const shown = transcript.open;
+    const open = shown?.key;
     const [read, setRead] = useState<
       | { status: "loading" }
       | { status: "done"; transcript: Transcript }
@@ -762,83 +764,59 @@ export function createTabs({
         );
       return () => abort.abort();
     }, [agent.key, open]);
-    // Focus follows the view: into Back, then back to the opened row's action.
-    // Whichever view is shown: a div, or the list's fieldset.
-    const here = useRef<HTMLDivElement & HTMLFieldSetElement>(null);
-    const opened = useRef<string>(undefined);
-    useEffect(() => {
-      const view = here.current;
-      if (open !== undefined) opened.current = open;
-      else if (opened.current === undefined) return;
-      const actions = [
-        ...(view?.querySelectorAll<HTMLElement>("[data-row]") ?? []),
-      ];
-      (open !== undefined
-        ? view?.querySelector<HTMLElement>("[data-back]")
-        : (actions.find((action) => action.dataset.row === opened.current) ??
-          actions[0] ??
-          view)
-      )?.focus();
-    }, [open]);
-    if (open !== undefined)
-      return (
-        <div ref={here} className="grid gap-4">
-          <div>
-            <Button variant="ghost" data-back onClick={() => transcript.back()}>
-              Back
-            </Button>
-          </div>
-          {read?.status === "loading" && <p role="status">Reading…</p>}
-          {read?.status === "error" && (
-            <p role="alert" className="buzz-field-error">
-              {read.error}
-            </p>
-          )}
-          {read?.status === "done" && (
-            <ActivityTranscript
-              transcript={read.transcript}
-              agentName={agent.name}
-              openConversation={openConversation}
-              state={() => undefined}
-            />
-          )}
-        </div>
-      );
-    if (!rows.length)
-      return (
-        <div ref={here} tabIndex={-1}>
-          No conversations on this device yet.
-        </div>
-      );
     return (
-      <fieldset
-        ref={here}
-        tabIndex={-1}
-        aria-label="Conversations"
-        className="grid gap-2"
-      >
-        {replays === false && <p>This harness can't replay its transcripts.</p>}
-        <ul className="grid gap-1">
-          {rows.map((row) => (
-            <li key={row.key} className="flex items-center gap-2">
-              <span className="grow">
-                {label(row)}
-                {row.status ? ` · ${row.status}` : ""} ·{" "}
-                {new Date(row.at).toLocaleString()}
-              </span>
-              {replays !== false && row.replayable && (
-                <Button
-                  variant="ghost"
-                  data-row={row.key}
-                  onClick={() => transcript.show(row)}
-                >
-                  Transcript
-                </Button>
-              )}
-            </li>
-          ))}
-        </ul>
-      </fieldset>
+      <>
+        {rows.length ? (
+          <fieldset aria-label="Conversations" className="grid gap-2">
+            {replays === false && (
+              <p>This harness can't replay its transcripts.</p>
+            )}
+            <ul className="grid gap-1">
+              {rows.map((row) => (
+                <li key={row.key} className="flex items-center gap-2">
+                  <span className="grow">
+                    {label(row)}
+                    {row.status ? ` · ${row.status}` : ""} ·{" "}
+                    {new Date(row.at).toLocaleString()}
+                  </span>
+                  {replays !== false && row.replayable && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => transcript.show(row)}
+                    >
+                      Transcript
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </fieldset>
+        ) : (
+          <p>No conversations on this device yet.</p>
+        )}
+        {shown && (
+          <PanelSubview
+            title={label(shown)}
+            backLabel="Back to profile"
+            onBack={transcript.back}
+          >
+            {read?.status === "loading" && <p role="status">Reading…</p>}
+            {read?.status === "error" && (
+              <p role="alert" className="buzz-field-error">
+                {read.error}
+              </p>
+            )}
+            {read?.status === "done" && (
+              <ActivityTranscript
+                transcript={read.transcript}
+                agentName={agent.name}
+                openConversation={openConversation}
+                state={() => undefined}
+              />
+            )}
+          </PanelSubview>
+        )}
+      </>
     );
   }
 
