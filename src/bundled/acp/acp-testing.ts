@@ -64,6 +64,10 @@ export function fakeHarness(
     /** The `configOptions` every session answers with; a set replaces the
      * chosen value. */
     configOptions?: readonly Record<string, unknown>[];
+    /** The sign-in methods `initialize` advertises. */
+    authMethods?: readonly Record<string, unknown>[];
+    /** Requests answered with this error. */
+    errors?: Readonly<Record<string, { code: number; message: string }>>;
     /** Updates `session/load` replays before it answers. */
     replay?: readonly Record<string, unknown>[];
   }> = {},
@@ -151,7 +155,9 @@ export function fakeHarness(
           const { id, method, params = {} } = message;
           if (!method || id === undefined || options.silent?.includes(method))
             continue;
-          if (method === "initialize")
+          const error = options.errors?.[method];
+          if (error) send({ id, error });
+          else if (method === "initialize")
             send({
               id,
               result: {
@@ -159,6 +165,9 @@ export function fakeHarness(
                 agentCapabilities: options.capabilities ?? {
                   mcpCapabilities: { http: true },
                 },
+                ...(options.authMethods
+                  ? { authMethods: options.authMethods }
+                  : {}),
               },
             });
           else if (method === "session/new") {

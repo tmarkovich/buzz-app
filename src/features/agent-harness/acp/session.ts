@@ -3,7 +3,7 @@ import { unsupportedSynced } from "../../agents/agent-config";
 import type { HostMcpServer } from "../../host/service";
 import { NO_OPTIONS, offers, optionState, values } from "./options";
 import { type AcpProcess, REQUEST_TIMEOUT_MS } from "./process";
-import { codeOf, errorMessage, stepLabel } from "./steps";
+import { AUTH_REQUIRED, codeOf, errorMessage, stepLabel } from "./steps";
 import {
   type ActivityReceipt,
   type BuildPrompt,
@@ -438,7 +438,7 @@ export class AcpSession {
    * unsent, or failed with `error` when it was refused before its prompt.
    * Either way it is undelivered, so what it carried comes back for the next
    * turn. */
-  private discard(waiter: Waiter, error?: string) {
+  private discard(waiter: Waiter, error?: string, code?: number) {
     this.withdraw(waiter);
     this.waiters = this.waiters.filter((pending) => pending !== waiter);
     this.pending = this.waiters.length;
@@ -447,7 +447,13 @@ export class AcpSession {
       if (receipt.current && !receipt.current()) this.active.delete(scope);
     waiter(
       error
-        ? { ok: false, error, undelivered: true }
+        ? {
+            ok: false,
+            error,
+            ...(code === undefined ? {} : { code }),
+            ...this.signIn(code),
+            undelivered: true,
+          }
         : { ok: true, undelivered: true },
     );
   }
@@ -564,7 +570,7 @@ export class AcpSession {
         } catch (error) {
           // Refused before the harness saw it: only that request fails.
           if (!prompted && waiter) {
-            this.discard(waiter, errorMessage(error));
+            this.discard(waiter, errorMessage(error), codeOf(error));
             continue;
           }
           const code = codeOf(error);
@@ -699,16 +705,21 @@ export class AcpSession {
     // harness: a model that forgot `send`, or one that cannot reach its provider.
     const text = this.acted || this.stopped ? "" : this.written.trim();
     const failure = this.lastFailure;
-    const signIn =
-      this.parity && failure?.code === -32000
-        ? { authMethods: this.acp.authMethods }
-        : {};
     this.settle({
-      ...(failure?.error ? { ok: false, ...failure, ...signIn } : { ok: true }),
+      ...(failure?.error
+        ? { ok: false, ...failure, ...this.signIn(failure.code) }
+        : { ok: true }),
       ...(text ? { text } : {}),
       ...(this.acted ? { answered: true } : {}),
       ...(!failure?.error && this.stopped?.ended ? { stopped: true } : {}),
     });
+  }
+  /** For a pinned session's `auth_required` error: the sign-in methods
+   * `initialize` advertised. */
+  private signIn(code: number | undefined) {
+    return this.parity && code === AUTH_REQUIRED
+      ? { authMethods: this.acp.authMethods }
+      : {};
   }
   /** The owner's cancel ended the turn, if it was stopping it. */
   private cancelEnded() {

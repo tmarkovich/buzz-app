@@ -12,7 +12,7 @@ import type { SessionAction } from "../../agents/service";
 import { offers } from "./options";
 import type { AcpProcess } from "./process";
 import type { AcpSession, Parity, Turn } from "./session";
-import { codeOf, HintedError } from "./steps";
+import { AUTH_REQUIRED, authMethodsOf, codeOf, HintedError } from "./steps";
 import {
   type ActivityReceipt,
   type BuildPrompt,
@@ -605,6 +605,9 @@ export class AgentSessions<S = unknown> {
         ok: false,
         error: `${this.options.label} could not start: ${message(error)}`,
         ...(code === undefined ? {} : { code }),
+        ...(this.options.pin && code === AUTH_REQUIRED
+          ? { authMethods: authMethodsOf(error) }
+          : {}),
         undelivered: true,
         ...(error instanceof HintedError ? { hint: error.hint } : {}),
       };

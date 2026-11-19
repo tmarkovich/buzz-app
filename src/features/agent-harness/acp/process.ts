@@ -8,7 +8,13 @@ import { isFinalMessage, MESSAGE_TOOLS } from "../../../buzz-mcp/session-tools";
 import type { HostMcpServer, HostProcess } from "../../host/service";
 import { optionState } from "./options";
 import { AcpSession, type ConfigOptions } from "./session";
-import { allow, errorMessage, HintedError } from "./steps";
+import {
+  allow,
+  AUTH_REQUIRED,
+  codeOf,
+  errorMessage,
+  HintedError,
+} from "./steps";
 import type {
   AcpHooks,
   AuthMethod,
@@ -238,9 +244,7 @@ export class AcpProcess {
   /** Whether `initialize` advertised `sessionCapabilities[name]`. */
   advertises(name: string) {
     const session = this.capabilities.sessionCapabilities as
-      | Record<string, unknown>
-      | null
-      | undefined;
+      Record<string, unknown> | null | undefined;
     const value = session?.[name];
     return typeof value === "object" && value !== null;
   }
@@ -375,7 +379,10 @@ export class AcpProcess {
       )) as ConfigOptions & { sessionId: string });
     } catch (error) {
       void server?.close();
-      throw error;
+      // Signing in is offered with what `initialize` advertised.
+      throw codeOf(error) === AUTH_REQUIRED
+        ? Object.assign(error as Error, { authMethods: this.methods })
+        : error;
     }
     session = new AcpSession(
       this,

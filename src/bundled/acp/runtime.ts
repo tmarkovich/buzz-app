@@ -69,6 +69,7 @@ import {
   wakeLands,
 } from "../../features/agent-harness/plugin-wake";
 import { type Config, config } from "./config";
+import { AUTH_REQUIRED } from "../../features/agent-harness/acp/steps";
 import { HarnessProcess, start } from "./harness";
 import { launchKey, type ModelCache } from "./models";
 import { preset } from "./presets";
@@ -80,8 +81,6 @@ const CHAT = [9, 40002];
 /** No extension picks a model: the launch's args or env do. */
 const HARNESS_CHOICE = Object.freeze({ provider: "", model: "" });
 const LABEL = "ACP agent";
-/** ACP's error code for a harness that needs its user to sign in. */
-const AUTH_REQUIRED = -32000;
 /** What a failed turn says in the channel. The harness's own error can carry
  * anything, secrets included, so it stays in the turn's local activity. */
 const FAILED = "⚠️ I couldn't finish that. Details are in my activity.";

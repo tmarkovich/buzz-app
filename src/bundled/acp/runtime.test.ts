@@ -1684,6 +1684,36 @@ describe("AcpRuntime", () => {
     expect(fake.servers.every((server) => server.closed)).toBe(true);
   });
 
+  it.each(["session/new", "session/set_config_option"])(
+    "keeps the sign-in methods when %s needs a login",
+    async (method) => {
+      const config = await confirmed({ model: "b" });
+      const { runtime, deliver, sync, published } = setup({
+        authMethods: [{ id: "login", name: "Log in", description: "Run it" }],
+        errors: { [method]: { code: -32000, message: "Sign in first" } },
+        configOptions: [
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            type: "select",
+            currentValue: "a",
+            options: ["a", "b"].map((value) => ({ value, name: value })),
+          },
+        ],
+      });
+      sync(config);
+      await deliver(message("1", "@Opal hello"), config).run;
+      await vi.waitFor(() => expect(published).toHaveLength(1));
+      expect(published[0]?.content).toBe(
+        `${FAILED} Run \`opencode auth login\`.`,
+      );
+      expect(runtime.signIn(self)).toEqual({
+        methods: [{ name: "Log in", description: "Run it" }],
+      });
+    },
+  );
+
   it("adds the preset's sign-in hint only when the first turn needs a login", async () => {
     for (const code of [-32000, -32603]) {
       const config = await confirmed();

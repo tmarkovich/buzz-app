@@ -1,4 +1,5 @@
 // What a harness's session updates show, and how its requests are answered.
+import type { AuthMethod } from "./types";
 
 const STEP_KEYS = [
   "description",
@@ -59,6 +60,16 @@ export class HintedError extends Error {
   ) {
     super(message);
   }
+}
+
+/** ACP's error code for a harness that needs its user to sign in. */
+export const AUTH_REQUIRED = -32000;
+
+/** The sign-in methods an `auth_required` error from `session/new` carries. */
+export function authMethodsOf(error: unknown): readonly AuthMethod[] {
+  return (
+    (error as { authMethods?: readonly AuthMethod[] } | null)?.authMethods ?? []
+  );
 }
 
 export function codeOf(error: unknown) {
