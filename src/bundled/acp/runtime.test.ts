@@ -500,6 +500,37 @@ describe("AcpRuntime", () => {
     expect(fake.harnesses.flatMap((h) => h.turns)).toEqual([]);
   });
 
+  it("sends no prompt for a delivery that stopped being current", async () => {
+    const config = await confirmed();
+    let open!: () => void;
+    const opening = new Promise<void>((resolve) => (open = resolve));
+    const { fake, runtime, deliver, sync } = setup({ opening });
+    sync(config);
+    let live = true;
+    const signal = new AbortController().signal;
+    await deliver(message("1", "@Opal hello"), config, signal, {
+      current: () => live,
+    }).run;
+    await vi.waitFor(() => expect(fake.harnesses[0]?.opened).toHaveLength(1));
+    // Turned off while its session opens.
+    live = false;
+    open();
+    await flush();
+    const wake = await runtime.runOnce({
+      delivery: {
+        agent: { key: self, pubkey: self, name: "Opal", owner: alice },
+        config,
+        current: () => false,
+      } as unknown as Delivery,
+      key: "timer",
+      signal,
+      prompt: async () => "wake",
+    });
+    expect(wake).toMatchObject({ ok: true });
+    await flush();
+    expect(fake.harnesses.flatMap((h) => h.sent("session/prompt"))).toEqual([]);
+  });
+
   it("ignores a mention from someone other than the owner", async () => {
     const config = await confirmed();
     const { fake, deliver, sync } = setup();

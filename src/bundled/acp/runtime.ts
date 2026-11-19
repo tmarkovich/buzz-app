@@ -275,6 +275,7 @@ export class AcpRuntime {
     named,
     synced,
     wakeText,
+    current,
   }: Delivery) {
     const settings = config(raw);
     // Unaddressed watches and timers come as standalone turns (`runOnce`).
@@ -389,6 +390,9 @@ export class AcpRuntime {
         };
       },
       signal,
+      // A wake its owner disabled or rearmed meanwhile, or a stopped
+      // delivery, is not sent.
+      current: () => !signal.aborted && (!current || current()),
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       // A pick runs on its own level; a synced one is checked.
@@ -456,6 +460,7 @@ export class AcpRuntime {
       },
       {
         signal,
+        current: delivery.current,
         ...(delivery.synced?.effort ? { kept: delivery.synced.effort } : {}),
       },
     );
