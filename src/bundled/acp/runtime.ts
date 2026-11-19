@@ -60,6 +60,8 @@ import {
 } from "../claude-code/prompt";
 import { digest } from "../../features/agent-harness/acp/agent-sessions";
 import { standalonePrompt } from "../goose/runtime";
+import { offers } from "../../features/agent-harness/acp/options";
+import { unsupportedSynced } from "../../features/agents/agent-config";
 import {
   wakeAnchor,
   wakeLands,
@@ -94,6 +96,8 @@ type Snap = Readonly<{
   name?: string;
   /** The tools plugins added, as `addedKey`. */
   added: string;
+  /** Its model is synced: one the harness doesn't offer is refused. */
+  syncedModel?: true;
 }>;
 
 /** Everything a session is opened with, so a saved one resumes only while
@@ -148,6 +152,8 @@ type Entry = {
   handle?: AgentHandle;
   /** Where each session's tools default to: its current turn's thread. */
   places: WeakMap<Snap, Context>;
+  /** Whether the latest delivery's model was synced. */
+  syncedModel?: boolean;
 };
 
 export class AcpRuntime {
@@ -314,6 +320,7 @@ export class AcpRuntime {
     const entry = this.entry(agent.key, settings);
     entry.handle = agent;
     entry.team = team ?? "";
+    entry.syncedModel = !!synced?.model;
     const event =
       trigger.type !== "mention" ? wakeAnchor(trigger) : trigger.event;
     const channel =
@@ -450,6 +457,7 @@ export class AcpRuntime {
     const entry = this.entry(agent.key, config(delivery.config));
     entry.handle = agent;
     entry.team = team ?? "";
+    entry.syncedModel = !!delivery.synced?.model;
     const done = entry.sessions.runOnce(
       key,
       async () => {
@@ -735,6 +743,7 @@ export class AcpRuntime {
       team: entry.team,
       ...(entry.name ? { name: entry.name } : {}),
       added: addedKey(this.added()),
+      ...(entry.syncedModel ? { syncedModel: true } : {}),
     });
     const launchFor = async ({ config: c, team, name }: Snap) => {
       const memory = await this.core(agent);
@@ -776,7 +785,13 @@ export class AcpRuntime {
         };
       },
       launchFor,
-      pickFor: (pinned, override) => pickFor(pinned.config, override),
+      pickFor: (pinned, override) =>
+        pickFor(pinned.config, override, pinned.syncedModel),
+      // A synced model is the agent's on every device: never run another.
+      refuse: (state, { model }, source) =>
+        source.model === "synced" && model && !offers(state.model, model)
+          ? unsupportedSynced("model", model, `this ${LABEL}`)
+          : undefined,
       onState: (state, pinned) => {
         const key = launchKey(pinned.config);
         if (key) this.cache?.record(key, state);
@@ -929,17 +944,20 @@ export function cover(from: Mark, carried: readonly EventData[]): Mark {
 }
 
 /** A turn's pick: the message's own fields win, and the rest come from the
- * session's pinned settings. Nothing syncs yet, so pinned fields are this
- * device's. */
+ * session's pinned settings: a synced model's, else this device's. A synced
+ * effort is checked as `kept`. */
 export function pickFor(
   pinned: Config,
   override: Pick | undefined,
+  syncedModel = false,
 ): Readonly<{ pick: Pick; source: Source }> {
   const field = (name: "model" | "effort") => {
     const own = override?.[name];
     if (own !== undefined) return { value: own, source: "message" as const };
     const value = pinned[name];
-    return value ? { value, source: "device" as const } : undefined;
+    const source: "synced" | "device" =
+      name === "model" && syncedModel ? "synced" : "device";
+    return value ? { value, source } : undefined;
   };
   const model = field("model");
   const effort = field("effort");

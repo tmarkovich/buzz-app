@@ -1523,6 +1523,53 @@ describe("AcpRuntime", () => {
     );
   });
 
+  it("refuses a synced model the harness doesn't offer, unless the message picks one", async () => {
+    const config = await confirmed({ model: "gone" });
+    const { fake, runtime, deliver, sync, published, workingUntil } = setup({
+      configOptions: [
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "a",
+          options: [{ value: "a", name: "a" }],
+        },
+      ],
+    });
+    sync(config);
+    const signal = new AbortController().signal;
+    const synced = { synced: { model: "gone" } };
+    await deliver(message("1", "@Opal think"), config, signal, synced).run;
+    await vi.waitFor(() => expect(published).toHaveLength(1));
+    expect(fake.harnesses[0]?.sent("session/prompt")).toEqual([]);
+    await expect(workingUntil.mock.calls[0]?.[0]).resolves.toMatchObject({
+      error: expect.stringContaining('synced model "gone"'),
+    });
+    // A watch or timer is checked the same way.
+    const wake = await runtime.runOnce({
+      delivery: {
+        agent: { key: self, pubkey: self, name: "Opal", owner: alice },
+        config,
+        ...synced,
+      } as unknown as Delivery,
+      key: "timer",
+      signal,
+      prompt: async () => "wake",
+    });
+    expect(wake).toMatchObject({ ok: false });
+    expect(wake.error).toContain('synced model "gone"');
+    expect(fake.harnesses.flatMap((h) => h.turns)).toEqual([]);
+    // The message's own pick runs.
+    void deliver(message("2", "@Opal think"), config, signal, {
+      ...synced,
+      model: "a",
+    }).run;
+    await vi.waitFor(() =>
+      expect(fake.harnesses.flatMap((h) => h.turns)).toHaveLength(1),
+    );
+  });
+
   it("runs a synced effort the harness offers in a group, already current", async () => {
     const config = await confirmed();
     const { fake, deliver, sync } = setup({
