@@ -17,17 +17,20 @@ import {
 } from "./model";
 import styles from "./Reminders.module.css";
 
-/** "Remind me" for one message: a preset or custom time, plus an optional note. */
+const MAX_NOTE_LENGTH = 4096;
+
 export function RemindDialog({
   message,
   session,
   close,
 }: {
-  message: ChannelMessage;
+  message?: ChannelMessage;
   session: RelaySession;
   close(): void;
 }) {
   const fields = useRef<HTMLDivElement>(null);
+  const noteInput = useRef<HTMLTextAreaElement>(null);
+  const saving = useRef(false);
   const [when, setWhen] = useState(TIME_PRESETS[0]?.label ?? "custom");
   const [note, setNote] = useState("");
   const [date, setDate] = useState(todayDateString);
@@ -36,28 +39,48 @@ export function RemindDialog({
   const [error, setError] = useState<string>();
   const custom = parseCustomDateTime(date, time);
   const preset = TIME_PRESETS.find((item) => item.label === when);
+  const validText =
+    !!message || (note.length <= MAX_NOTE_LENGTH && !!note.trim());
   const submit = async (notBefore: number) => {
     const reminders = session.reminders;
-    if (!reminders || pending) return;
+    if (!reminders || saving.current || !validText) return;
+    saving.current = true;
     setPending(true);
     setError(undefined);
     try {
       await reminders.create(
-        {
-          eventId: message.id,
-          channelId: message.channelId,
-          preview: messagePreview(message.content),
-          authorPubkey: message.authorId,
-        },
+        message
+          ? {
+              eventId: message.id,
+              channelId: message.channelId,
+              preview: messagePreview(message.content),
+              authorPubkey: message.authorId,
+            }
+          : undefined,
         notBefore,
         note,
       );
       close();
     } catch {
       setError("The reminder could not be saved. Try again.");
+      saving.current = false;
       setPending(false);
     }
   };
+  const noteField = (
+    <Field label={message ? "Note (optional)" : "Reminder text"}>
+      <Textarea
+        ref={noteInput}
+        placeholder="What do you want to follow up on?"
+        rows={2}
+        maxLength={MAX_NOTE_LENGTH}
+        required={!message}
+        value={note}
+        disabled={pending}
+        onChange={(event) => setNote(event.target.value)}
+      />
+    </Field>
+  );
   return (
     <Dialog
       size="compact"
@@ -68,11 +91,16 @@ export function RemindDialog({
       initialFocus={(type) =>
         type === "touch" || window.matchMedia?.("(pointer: coarse)").matches
           ? (fields.current?.closest<HTMLElement>('[role="dialog"]') ?? null)
-          : (fields.current?.querySelector<HTMLElement>('[role="combobox"]') ??
-            null)
+          : message
+            ? (fields.current?.querySelector<HTMLElement>(
+                '[role="combobox"]',
+              ) ?? null)
+            : noteInput.current
       }
-      title="Remind me"
-      description="Choose when to be reminded about this message."
+      title={message ? "Remind me" : "New reminder"}
+      description={
+        message ? "Choose when to be reminded about this message." : undefined
+      }
       actions={
         <>
           <Button disabled={pending} onClick={close}>
@@ -81,7 +109,7 @@ export function RemindDialog({
           <Button
             variant="prominent"
             loading={pending}
-            disabled={pending || (!preset && custom === null)}
+            disabled={pending || !validText || (!preset && custom === null)}
             onClick={() => {
               const at = preset ? preset.at() : parseCustomDateTime(date, time);
               if (at !== null) void submit(at);
@@ -93,6 +121,7 @@ export function RemindDialog({
       }
     >
       <div ref={fields} className={styles.form}>
+        {!message && noteField}
         <Select
           label="When"
           variant="field"
@@ -146,16 +175,7 @@ export function RemindDialog({
             )}
           </>
         )}
-        <Field label="Note (optional)">
-          <Textarea
-            placeholder="What do you want to follow up on?"
-            rows={2}
-            maxLength={4096}
-            value={note}
-            disabled={pending}
-            onChange={(event) => setNote(event.target.value)}
-          />
-        </Field>
+        {message && noteField}
         {error && (
           <p role="alert" className="text-body text-subtle">
             {error}

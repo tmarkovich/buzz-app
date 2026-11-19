@@ -433,6 +433,134 @@ function page(source: Reminder[] | Reminders) {
   );
 }
 
+it("adds custom text from the empty page and lists it without a message link", async () => {
+  const user = userEvent.setup();
+  const publish = vi
+    .fn(async () => {})
+    .mockRejectedValueOnce(new Error("offline"));
+  const { capability, recover } = createReminders({
+    viewer,
+    signal: new AbortController().signal,
+    host: {
+      decode: async (events) =>
+        events.map((event) => ({
+          eventId: event.id,
+          content: JSON.parse(event.content),
+        })),
+      sign: async (intent) =>
+        ({
+          id: "saved",
+          pubkey: viewer,
+          kind: 30300,
+          created_at: intent.createdAt,
+          content: JSON.stringify(intent.content),
+          tags: [
+            ["d", intent.d],
+            ["not_before", String(intent.notBefore)],
+          ],
+        }) as RelayEvent,
+    },
+    query: async () => [],
+    publish,
+  });
+  page(capability);
+  const trigger = screen.getByRole("button", { name: "New reminder" });
+  expect(screen.getByText("Loading reminders…")).toBeVisible();
+  await act(async () => recover());
+  expect(screen.getByText("No reminders yet")).toBeVisible();
+  await user.click(trigger);
+  const dialog = within(screen.getByRole("dialog", { name: "New reminder" }));
+  const text = dialog.getByRole("textbox", { name: "Reminder text" });
+  const save = dialog.getByRole("button", { name: "Set reminder" });
+  await user.type(text, "   ");
+  expect(save).toBeDisabled();
+  await user.type(text, "Renew insurance");
+  await user.click(save);
+  expect(await dialog.findByRole("alert")).toHaveTextContent(
+    "could not be saved",
+  );
+  expect(text).toHaveValue("   Renew insurance");
+  const before = Math.floor(Date.now() / 1000);
+  await user.click(save);
+  const row = within(await screen.findByRole("listitem"));
+  expect(row.getByText("Renew insurance", { exact: true })).toBeVisible();
+  expect(
+    row.queryByRole("button", { name: /Open message|Open conversation/ }),
+  ).toBeNull();
+  const due = capability.snapshot().reminders[0]?.notBefore;
+  expect(due).toBeGreaterThanOrEqual(before + 30 * 60);
+  expect(due).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 30 * 60);
+  expect(publish).toHaveBeenCalledTimes(2);
+});
+
+it("retires the draft on session replacement and ignores the old save's completion", async () => {
+  const user = userEvent.setup();
+  const state = { status: "ready", hydrated: true, reminders: [] };
+  let resolveSave!: () => void;
+  const save = new Promise<void>((resolve) => {
+    resolveSave = resolve;
+  });
+  const firstCreate = vi.fn(() => save);
+  const secondCreate = vi.fn(async () => {});
+  const mount = (create: typeof secondCreate | undefined) => {
+    const connection = {
+      status: "ready",
+      scope: `https://community:${viewer}`,
+      viewer,
+      session: {
+        ...sessionParts,
+        reminders: create && {
+          create,
+          snapshot: () => state,
+          subscribe: () => () => {},
+        },
+      },
+    };
+    return (
+      <RemindersPage
+        relay={
+          {
+            snapshot: () => connection,
+            subscribe: () => () => {},
+          } as unknown as RelayData
+        }
+        navigator={{ open: vi.fn() } as unknown as Navigation}
+        clock={{ subscribe: () => () => {}, read: () => now }}
+      />
+    );
+  };
+  const { rerender } = render(mount(undefined));
+  const open = () =>
+    user.click(screen.getByRole("button", { name: "New reminder" }));
+  expect(screen.queryByRole("button", { name: "New reminder" })).toBeNull();
+  rerender(mount(firstCreate));
+  await open();
+  await user.type(
+    screen.getByRole("textbox", { name: "Reminder text" }),
+    "First session",
+  );
+  try {
+    await user.dblClick(screen.getByRole("button", { name: "Set reminder" }));
+    expect(firstCreate).toHaveBeenCalledExactlyOnceWith(
+      undefined,
+      expect.any(Number),
+      "First session",
+    );
+    rerender(mount(secondCreate));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await open();
+    const text = screen.getByRole("textbox", { name: "Reminder text" });
+    expect(text).toHaveValue("");
+    await user.type(text, "Second session");
+  } finally {
+    await act(async () => resolveSave());
+  }
+  expect(screen.getByRole("textbox", { name: "Reminder text" })).toHaveValue(
+    "Second session",
+  );
+  expect(secondCreate).not.toHaveBeenCalled();
+});
+
 it("renders a reminder due past JavaScript's Date range without its due label", () => {
   // The relay accepts any safe-integer not_before; this one has no Date.
   page([reminder("far future", "pending", 1, 8_640_000_000_001)]);
@@ -444,7 +572,7 @@ it("renders a reminder due past JavaScript's Date range without its due label", 
 });
 
 const hint =
-  "Choose Remind me from any message's menu to bring it back here when it matters.";
+  "Choose New reminder to write your own, or choose Remind me from a message's menu.";
 
 it("says the list is caught up when only Done reminders exist", () => {
   page([reminder("finished", "done", 1)]);
