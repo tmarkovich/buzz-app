@@ -58,6 +58,19 @@ vi.mock("./voice", () => ({
 
 // The plugin registers only in the Mac/Linux desktop app.
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true }));
+const env = vi.hoisted(() => ({
+  own: new Set<string>(),
+  unknown: new Set<string>(),
+  asked: 0,
+  gate: undefined as Promise<void> | undefined,
+}));
+vi.mock("../agents/agent-env", () => ({
+  hasOwnEnv: async (agent: string) => {
+    env.asked++;
+    await env.gate;
+    return env.unknown.has(agent) ? undefined : env.own.has(agent);
+  },
+}));
 
 const owner = "a".repeat(64);
 const pubkey = "b".repeat(64);
@@ -75,6 +88,8 @@ function deferred<T>() {
 }
 const runtimes: CodexRuntime[] = [];
 afterEach(() => {
+  env.own.clear();
+  env.unknown.clear();
   for (const runtime of runtimes) runtime.dispose();
   runtimes.length = 0;
   vi.useRealTimers();
@@ -728,6 +743,8 @@ it("hands over promptly and runs conversations independently on one server", asy
   await f.runtime.run(f.delivery("@Codex independent", "e".repeat(64)));
   await vi.waitFor(() => expect(f.starts()).toHaveLength(2));
   expect(f.spawn).toHaveBeenCalledTimes(1);
+  // The shared server runs agents, so it asks for their variables.
+  expect(f.spawn.mock.calls[0]?.[1]?.secrets).toEqual(["agent-env"]);
   f.complete(0, "FIRST");
   f.complete(1, "OTHER");
   await vi.waitFor(() => expect(f.publish).toHaveBeenCalledTimes(2));
@@ -1284,6 +1301,156 @@ it("does not clean or log a cleanup error after the last agent closes the server
   } finally {
     vi.useRealTimers();
     error.mockRestore();
+  }
+});
+it("starts an agent with its own list on its own server, and the rest on the shared one", async () => {
+  const f = fixture();
+  const b = second(f);
+  env.own.add("9".repeat(64));
+  try {
+    await f.runtime.run(f.delivery("@Codex first"));
+    await f.runtime.run(b.delivery("@Other second"));
+    await vi.waitFor(() => expect(servers(f)).toHaveLength(2));
+    expect(servers(f).map(([, options]) => options?.envAgent)).toEqual([
+      undefined,
+      "9".repeat(64),
+    ]);
+    expect(
+      servers(f).every(([, options]) =>
+        options?.secrets?.includes("agent-env"),
+      ),
+    ).toBe(true);
+  } finally {
+    env.own.clear();
+    f.runtime.dispose();
+  }
+});
+it("starts an agent's own server only once the disconnected shared process has exited", async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  const replacement = fixture();
+  const silent = deferred<void>();
+  // The old process outlives its connection until the test lets it exit.
+  f.process.end.mockResolvedValue(undefined);
+  f.process.kill.mockResolvedValue(undefined);
+  try {
+    await f.runtime.run(f.delivery("first"));
+    await vi.waitFor(() => expect(f.starts()).toHaveLength(1));
+    for (const method of ["thread/unsubscribe", "account/read", "config/read"])
+      f.held.set(method, silent.promise);
+    await f.complete(0, "FIRST FINISHED");
+    await f.runtime.run(f.delivery("queued follow-up"));
+    await vi.advanceTimersByTimeAsync(30_000);
+    f.spawn.mockImplementation(replacement.spawn);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(f.process.end).toHaveBeenCalled();
+    // Its first list is saved, then new work comes while the old process
+    // is still stopping.
+    env.own.add(pubkey);
+    const b = second(f);
+    env.own.add("9".repeat(64));
+    await f.runtime.run(b.delivery("@Other new work"));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(servers(f).filter(([, options]) => options?.envAgent)).toHaveLength(
+      0,
+    );
+    f.exits.resolve(0);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.waitFor(() =>
+      expect(
+        servers(f).filter(
+          ([, options]) => options?.envAgent === "9".repeat(64),
+        ),
+      ).toHaveLength(1),
+    );
+  } finally {
+    silent.resolve();
+    env.own.clear();
+    f.runtime.dispose();
+    vi.useRealTimers();
+  }
+});
+it.each(["dispose", "retire"] as const)(
+  "drops a start whose presence answer comes after %s",
+  async (end) => {
+    {
+      const f = fixture();
+      const answer = deferred<void>();
+      env.gate = answer.promise;
+      try {
+        await f.runtime.run(f.delivery("@Codex work"));
+        await vi.waitFor(() => expect(env.asked).toBeGreaterThan(0));
+        const retiring =
+          end === "dispose" ? f.runtime.dispose() : f.runtime.retire(pubkey);
+        answer.resolve();
+        await retiring;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(servers(f)).toHaveLength(0);
+      } finally {
+        env.gate = undefined;
+        env.asked = 0;
+        f.runtime.dispose();
+      }
+    }
+  },
+);
+it("chooses an agent's server again after its own one exits", async () => {
+  const f = fixture();
+  env.own.add(pubkey);
+  try {
+    await f.runtime.run(f.delivery("work"));
+    await vi.waitFor(() => expect(f.starts()).toHaveLength(1));
+    expect(servers(f)[0]?.[1]?.envAgent).toBe(pubkey);
+    // Its last list is removed, then its process exits on its own.
+    env.own.delete(pubkey);
+    f.exits.resolve(3);
+    await vi.waitFor(() => expect(f.publish).toHaveBeenCalledTimes(1));
+    await f.runtime.run(f.delivery("again"));
+    await vi.waitFor(() => expect(servers(f)).toHaveLength(2));
+    expect(servers(f)[1]?.[1]?.envAgent).toBeUndefined();
+  } finally {
+    f.runtime.dispose();
+  }
+});
+it("starts on the shared server when presence can't be read, and reads it again next time", async () => {
+  const f = fixture();
+  env.unknown.add(pubkey);
+  try {
+    await f.runtime.run(f.delivery("work"));
+    await vi.waitFor(() => expect(f.starts()).toHaveLength(1));
+    expect(servers(f)[0]?.[1]?.envAgent).toBeUndefined();
+    f.exits.resolve(3);
+    await vi.waitFor(() => expect(f.publish).toHaveBeenCalledTimes(1));
+    env.unknown.delete(pubkey);
+    env.own.add(pubkey);
+    await f.runtime.run(f.delivery("again"));
+    await vi.waitFor(() => expect(servers(f)).toHaveLength(2));
+    expect(servers(f)[1]?.[1]?.envAgent).toBe(pubkey);
+  } finally {
+    env.unknown.clear();
+    f.runtime.dispose();
+  }
+});
+it("starts an agent's own server again after its start fails", async () => {
+  const f = fixture();
+  env.own.add(pubkey);
+  const spawn = f.spawn.getMockImplementation();
+  f.spawn.mockImplementationOnce(async (id, options) => {
+    if (id === "app-server") throw new Error("no Codex");
+    return spawn?.(id, options) as never;
+  });
+  try {
+    await f.runtime.run(f.delivery("work"));
+    await vi.waitFor(() => expect(f.publish).toHaveBeenCalledTimes(1));
+    expect(f.starts()).toHaveLength(0);
+    await f.runtime.run(f.delivery("again"));
+    await vi.waitFor(() => expect(f.starts()).toHaveLength(1));
+    expect(servers(f).map(([, options]) => options?.envAgent)).toEqual([
+      pubkey,
+      pubkey,
+    ]);
+  } finally {
+    f.runtime.dispose();
   }
 });
 it("reopens the shared server after it exits", async () => {

@@ -78,7 +78,7 @@ export type SessionsOptions = Readonly<{
   room?(): Promise<boolean>;
   strictResume?: boolean;
   /** Where a new conversation looks for a process already started. */
-  spare?: Spare;
+  spare?: Pick<Spare, "take">;
   store: SessionStore;
   /** How to start a process with the agent's current settings, for the
    * conversation `key` when given. */
@@ -773,6 +773,8 @@ export class AgentSessions {
       } catch {
         void spare.kill();
       }
+    // A presence answer that outlived a stop starts nothing.
+    if (this.disposed) throw new Error("Claude was stopped");
     const process = await ClaudeProcess.spawn(spawn, {
       ...launch,
       sessionId: this.newId(),
