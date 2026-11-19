@@ -1162,6 +1162,8 @@ export class AgentSessions<S = unknown> {
       this.forget(key, claim);
       return;
     }
+    // Its late close would unload the session resumed now: open a new one.
+    if (this.closes(saved.id)) return;
     let session: AcpSession | undefined;
     try {
       session = await start(saved.id);
@@ -1328,6 +1330,13 @@ export class AgentSessions<S = unknown> {
       for (const [key, live] of this.live)
         if (live.process === process) this.drop(key, live);
     });
+  }
+  /** Whether session `id` is retired or closing, and not yet closed. */
+  private closes(id: string) {
+    const held = [...this.retired.values()].flatMap((set) => [...set]);
+    return [...held, ...this.closing].some(
+      (item) => !(item instanceof Promise) && item.session.id === id,
+    );
   }
   /** Whether a session is in `process`, or closing in it. */
   private used(process: AcpProcess) {

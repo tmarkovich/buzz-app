@@ -1139,6 +1139,28 @@ describe("a pinned session's launch generation", () => {
 
 describe("shutdown after a pinned session is retired or not resumed", () => {
   const closing = { resume: {}, close: {} };
+  it("opens new rather than resume a retired session whose close is pending", async () => {
+    const harness = fakeHarness({
+      holdClose: true,
+      capabilities: {
+        mcpCapabilities: { http: true },
+        sessionCapabilities: closing,
+      },
+    });
+    const { sessions, settings, records } = pinnedSessions(harness);
+    await sessions.deliver("chat", "a", 1, { build: build(1) });
+    expect(records.get("chat")?.id).toBe("session-1");
+    settings.localKey = "b";
+    sessions.reconfigure();
+    await until(() => harness.closes.length === 1);
+    await sessions.deliver("chat", "b", 2, { build: build(2) });
+    // Its late close must not unload the session B runs on.
+    expect(harness.sent("session/resume")).toEqual([]);
+    expect(harness.sent("session/new")).toHaveLength(2);
+    harness.closes[0]?.();
+    sessions.dispose();
+  });
+
   it("closes a busy retired session at once, releasing its hold once", async () => {
     const harness = fakeHarness({
       hold: true,
